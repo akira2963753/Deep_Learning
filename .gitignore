@@ -1,0 +1,22 @@
+# 資料集（在 Colab 用 download_dataset() 下載，不需上傳）
+Lab2/dataset/
+
+# 訓練好的模型權重（檔案太大）
+Lab2/saved_models/
+
+# Python 暫存
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# 環境
+.env
+.venv
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
