@@ -95,8 +95,9 @@ def run_inference(args):
                 name = self.names[idx]
                 from PIL import Image as PILImage
                 img = PILImage.open(self.images_dir / f"{name}.jpg").convert("RGB")
+                orig_size = (img.height, img.width)  # (H, W)
                 if self.transform: img = self.transform(img)
-                return img, name
+                return img, name, orig_size
 
         test_dataset = KaggleTestDataset(args.data_root, image_names, img_tf)
     else:
@@ -108,15 +109,31 @@ def run_inference(args):
 
     rows = []
     with torch.no_grad():
-        for images, names in test_loader:
-            images = images.to(device)
-            preds  = model(images)                          # B×1×H×W logits
-            preds  = torch.sigmoid(preds)
-            preds  = (preds > args.threshold).cpu().numpy() # B×1×H×W bool
+        for batch in test_loader:
+            if len(batch) == 3:
+                images, names, orig_sizes = batch
+            else:
+                images, names = batch
+                orig_sizes = None
 
-            for pred, name in zip(preds, names):
-                mask_2d = pred[0].astype(np.uint8)          # H×W
-                rle     = rle_encode(mask_2d)
+            images = images.to(device)
+            preds  = model(images)                           # B×1×H×W logits
+            preds  = torch.sigmoid(preds)
+            preds  = (preds > args.threshold).cpu().numpy()  # B×1×H×W bool
+
+            for i, (pred, name) in enumerate(zip(preds, names)):
+                mask_2d = pred[0].astype(np.uint8)           # 256×256
+
+                # resize 回原始尺寸
+                if orig_sizes is not None:
+                    oh = int(orig_sizes[0][i]) if hasattr(orig_sizes[0], '__len__') else int(orig_sizes[0])
+                    ow = int(orig_sizes[1][i]) if hasattr(orig_sizes[1], '__len__') else int(orig_sizes[1])
+                    from PIL import Image as PILImage
+                    mask_pil = PILImage.fromarray(mask_2d)
+                    mask_pil = mask_pil.resize((ow, oh), PILImage.NEAREST)
+                    mask_2d  = np.array(mask_pil)
+
+                rle = rle_encode(mask_2d)
                 rows.append((name, rle))
 
     # 寫出 CSV
