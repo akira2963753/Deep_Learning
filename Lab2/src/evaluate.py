@@ -31,7 +31,7 @@ def evaluate(args):
 
     # 資料集
     img_tf, mask_tf = get_val_transform()
-    val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf)
+    val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf, splits_dir=args.splits_dir)
     val_loader  = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                              num_workers=args.num_workers, pin_memory=True)
     print(f"驗證集：{len(val_dataset)} 筆")
@@ -57,6 +57,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint",  type=str, required=True)
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--splits_dir",  type=str, default=None,
+                        help="Kaggle 提供的 split 目錄（含 train.txt / val.txt）")
     args = parser.parse_args()
 
     evaluate(args)

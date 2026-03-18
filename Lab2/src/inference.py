@@ -75,9 +75,35 @@ def run_inference(args):
 
     # 測試集（只有 image，無 mask）
     img_tf, _ = get_val_transform()
-    test_dataset = OxfordPetDataset(args.data_root, "test", transform=img_tf)
-    test_loader  = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
-                              num_workers=args.num_workers, pin_memory=True)
+
+    if args.test_list:
+        # 使用 Kaggle 提供的測試清單
+        from src.oxford_pet import OxfordPetDataset as _DS
+        from pathlib import Path
+        import torch.utils.data as tud
+
+        with open(args.test_list, "r") as f:
+            image_names = [l.strip() for l in f if l.strip()]
+
+        class KaggleTestDataset(tud.Dataset):
+            def __init__(self, root, names, transform):
+                self.images_dir = Path(root) / "images"
+                self.names = names
+                self.transform = transform
+            def __len__(self): return len(self.names)
+            def __getitem__(self, idx):
+                name = self.names[idx]
+                from PIL import Image as PILImage
+                img = PILImage.open(self.images_dir / f"{name}.jpg").convert("RGB")
+                if self.transform: img = self.transform(img)
+                return img, name
+
+        test_dataset = KaggleTestDataset(args.data_root, image_names, img_tf)
+    else:
+        test_dataset = OxfordPetDataset(args.data_root, "test", transform=img_tf)
+
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
+                             num_workers=args.num_workers, pin_memory=True)
     print(f"測試集：{len(test_dataset)} 筆")
 
     rows = []
@@ -113,6 +139,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--threshold",   type=float, default=0.5)
     parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--test_list",   type=str, default=None,
+                        help="Kaggle 提供的測試圖片清單（如 test_unet.txt）")
     args = parser.parse_args()
 
     run_inference(args)

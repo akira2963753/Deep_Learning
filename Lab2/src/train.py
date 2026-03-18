@@ -24,9 +24,13 @@ class AugmentedPetDataset(torch.utils.data.Dataset):
     訓練集專用：將 JointTransform 同時套用在 image 和 mask 上。
     """
 
-    def __init__(self, root, split, joint_transform: JointTransform):
+    def __init__(self, root, split, joint_transform: JointTransform, splits_dir=None):
         from pathlib import Path
-        splits = _get_splits(root)
+        if splits_dir is not None:
+            from src.oxford_pet import _get_kaggle_splits
+            splits = _get_kaggle_splits(splits_dir)
+        else:
+            splits = _get_splits(root)
         self.image_names    = splits[split]
         self.images_dir     = Path(root) / "images"
         self.masks_dir      = Path(root) / "annotations" / "trimaps"
@@ -67,9 +71,9 @@ def train(args):
     os.makedirs(args.save_dir, exist_ok=True)
 
     # 資料集
-    train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform())
+    train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
-    val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf)
+    val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf, splits_dir=args.splits_dir)
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.num_workers, pin_memory=True)
@@ -149,6 +153,8 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay",type=float, default=1e-4)
     parser.add_argument("--save_dir",    type=str, default="saved_models")
     parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--splits_dir",  type=str, default=None,
+                        help="Kaggle 提供的 split 目錄（含 train.txt / val.txt）")
     args = parser.parse_args()
 
     train(args)

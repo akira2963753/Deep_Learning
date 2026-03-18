@@ -92,6 +92,24 @@ def download_dataset(root: str) -> None:
         # tar_path.unlink()
 
 
+def _read_name_list(path: Path) -> list:
+    """每行只有 image_name 的 txt 格式（Kaggle 格式）"""
+    with open(path, "r") as f:
+        return [l.strip() for l in f if l.strip()]
+
+
+def _get_kaggle_splits(splits_dir: str) -> dict:
+    """
+    從 Kaggle 提供的 split txt 讀取 train/val 清單。
+    splits_dir 應包含 train.txt 和 val.txt。
+    """
+    splits_dir = Path(splits_dir)
+    return {
+        "train": _read_name_list(splits_dir / "train.txt"),
+        "val":   _read_name_list(splits_dir / "val.txt"),
+    }
+
+
 def _parse_split_file(split_file: Path) -> list:
     """
     解析 Oxford 提供的 split 文字檔（trainval.txt / test.txt）。
@@ -154,6 +172,8 @@ class OxfordPetDataset(Dataset):
         split:            'train' | 'val' | 'test'
         transform:        對 PIL Image 進行的 transform（輸入圖片）
         target_transform: 對 binary mask（PIL Image）進行的 transform
+        splits_dir:       Kaggle 提供的 split 目錄（含 train.txt / val.txt）。
+                          若為 None，使用原本的 Oxford 8:2 切割。
     """
 
     def __init__(
@@ -162,6 +182,7 @@ class OxfordPetDataset(Dataset):
         split: str = "train",
         transform=None,
         target_transform=None,
+        splits_dir: str = None,
     ):
         assert split in ("train", "val", "test"), \
             f"split 必須為 'train', 'val', 'test'，收到：{split}"
@@ -171,7 +192,10 @@ class OxfordPetDataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
 
-        splits = _get_splits(root)
+        if splits_dir is not None and split != "test":
+            splits = _get_kaggle_splits(splits_dir)
+        else:
+            splits = _get_splits(root)
         self.image_names = splits[split]
 
         self.images_dir = self.root / "images"
@@ -226,7 +250,7 @@ def get_default_target_transform():
     ])
 
 
-def load_dataset(root: str, split: str, transform=None, target_transform=None) -> OxfordPetDataset:
+def load_dataset(root: str, split: str, transform=None, target_transform=None, splits_dir: str = None) -> OxfordPetDataset:
     """
     建立並回傳 OxfordPetDataset。
 
@@ -246,7 +270,7 @@ def load_dataset(root: str, split: str, transform=None, target_transform=None) -
     if target_transform is None and split != "test":
         target_transform = get_default_target_transform()
 
-    return OxfordPetDataset(root, split, transform, target_transform)
+    return OxfordPetDataset(root, split, transform, target_transform, splits_dir=splits_dir)
 
 
 # ---------------------------------------------------------------------------
