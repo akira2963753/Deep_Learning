@@ -97,7 +97,7 @@ def run_inference(args):
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     with open(args.output, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["id", "predicted_mask"])
+        writer.writerow(["image_id", "encoded_mask"])
         writer.writerows(rows)
 
     print(f"✓ 已輸出 {len(rows)} 筆預測 → {args.output}")
