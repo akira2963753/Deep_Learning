@@ -8,7 +8,7 @@ from PIL import Image
 # ImageNet 標準化參數（與 oxford_pet.py 一致）
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
-IMAGE_SIZE = 256
+IMAGE_SIZE = 384
 
 
 # ---------------------------------------------------------------------------
