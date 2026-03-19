@@ -3,6 +3,8 @@ Lab2/dataset/
 
 # 訓練好的模型權重（檔案太大）
 Lab2/saved_models/
+Lab2/save_models/
+**/*.pth
 
 # Python 暫存
 __pycache__/
