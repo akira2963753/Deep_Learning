@@ -8,7 +8,16 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset
-from src.utils import dice_score, get_val_transform
+from src.utils import get_val_transform
+
+
+def dice_score_with_threshold(pred, target, threshold=0.5, smooth=1e-6):
+    pred = torch.sigmoid(pred)
+    pred = (pred > threshold).float()
+    pred   = pred.contiguous().view(-1)
+    target = target.contiguous().view(-1).float()
+    intersection = (pred * target).sum()
+    return ((2.0 * intersection + smooth) / (pred.sum() + target.sum() + smooth)).item()
 
 
 def evaluate(args):
@@ -36,29 +45,49 @@ def evaluate(args):
                              num_workers=args.num_workers, pin_memory=True)
     print(f"驗證集：{len(val_dataset)} 筆")
 
-    total_dice = 0.0
+    # 收集所有 logits 和 masks（避免重複推論）
+    all_preds = []
+    all_masks = []
     with torch.no_grad():
         for images, masks in val_loader:
             images = images.to(device)
-            masks  = masks.to(device).float()
             preds  = model(images)
-            total_dice += dice_score(preds, masks) * images.size(0)
+            all_preds.append(preds.cpu())
+            all_masks.append(masks.cpu().float())
 
-    avg_dice = total_dice / len(val_dataset)
-    print(f"\n平均 Dice Score（val）：{avg_dice:.4f}")
-    return avg_dice
+    all_preds = torch.cat(all_preds, dim=0)
+    all_masks = torch.cat(all_masks, dim=0)
+
+    if args.scan_threshold:
+        # 掃描 threshold，找最佳值
+        print("\nThreshold 掃描結果：")
+        print(f"{'Threshold':>12} | {'Dice Score':>12}")
+        print("-" * 28)
+        best_thresh, best_dice = 0.5, 0.0
+        for t in [round(x * 0.05, 2) for x in range(6, 13)]:  # 0.30 ~ 0.60
+            score = dice_score_with_threshold(all_preds, all_masks, threshold=t)
+            marker = " ← best" if score > best_dice else ""
+            if score > best_dice:
+                best_dice, best_thresh = score, t
+            print(f"{t:>12.2f} | {score:>12.4f}{marker}")
+        print(f"\n最佳 Threshold：{best_thresh}  Dice Score：{best_dice:.4f}")
+    else:
+        score = dice_score_with_threshold(all_preds, all_masks, threshold=args.threshold)
+        print(f"\n平均 Dice Score（val, threshold={args.threshold}）：{score:.4f}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate segmentation model on val set")
-    parser.add_argument("--model",       type=str, default="unet",
+    parser.add_argument("--model",           type=str, default="unet",
                         choices=["unet", "resnet34_unet"])
-    parser.add_argument("--data_root",   type=str, default="dataset/oxford-iiit-pet")
-    parser.add_argument("--checkpoint",  type=str, required=True)
-    parser.add_argument("--batch_size",  type=int, default=16)
-    parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--splits_dir",  type=str, default=None,
-                        help="Kaggle 提供的 split 目錄（含 train.txt / val.txt）")
+    parser.add_argument("--data_root",       type=str, default="dataset/oxford-iiit-pet")
+    parser.add_argument("--checkpoint",      type=str, required=True)
+    parser.add_argument("--batch_size",      type=int, default=16)
+    parser.add_argument("--num_workers",     type=int, default=2)
+    parser.add_argument("--splits_dir",      type=str, default=None)
+    parser.add_argument("--threshold",       type=float, default=0.5)
+    parser.add_argument("--scan_threshold",  action="store_true",
+                        help="掃描 0.30~0.60 找最佳 threshold")
     args = parser.parse_args()
 
     evaluate(args)

@@ -117,8 +117,19 @@ def run_inference(args):
                 orig_sizes = None
 
             images = images.to(device)
-            preds  = model(images)                           # B×1×H×W logits
-            preds  = torch.sigmoid(preds)
+
+            if args.tta:
+                # Test Time Augmentation：原圖 + 水平翻轉 + 垂直翻轉 + 兩者翻轉
+                p0 = torch.sigmoid(model(images))
+                p1 = torch.sigmoid(model(torch.flip(images, [3])))           # hflip
+                p1 = torch.flip(p1, [3])
+                p2 = torch.sigmoid(model(torch.flip(images, [2])))           # vflip
+                p2 = torch.flip(p2, [2])
+                p3 = torch.sigmoid(model(torch.flip(images, [2, 3])))        # hflip + vflip
+                p3 = torch.flip(p3, [2, 3])
+                preds = (p0 + p1 + p2 + p3) / 4.0
+            else:
+                preds = torch.sigmoid(model(images))
             preds  = (preds > args.threshold).cpu().numpy()  # B×1×H×W bool
 
             for i, (pred, name) in enumerate(zip(preds, names)):
@@ -155,6 +166,8 @@ if __name__ == "__main__":
     parser.add_argument("--output",      type=str, default="unet_pred.csv")
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--threshold",   type=float, default=0.5)
+    parser.add_argument("--tta",         action="store_true",
+                        help="使用 Test Time Augmentation（原圖+hflip+vflip+兩者）")
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--test_list",   type=str, default=None,
                         help="Kaggle 提供的測試圖片清單（如 test_unet.txt）")
