@@ -84,8 +84,8 @@ def train(args):
 
     # 優化器 & 排程器
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs, eta_min=1e-6
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", patience=5, factor=0.5
     )
 
     best_dice = 0.0
@@ -136,7 +136,7 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  ✓ 已儲存最佳模型（val_dice={best_dice:.4f}）→ {save_path}")
 
-        scheduler.step()
+        scheduler.step(val_dice)
 
     print(f"\n訓練結束。最佳 val Dice Score: {best_dice:.4f}")
     print(f"模型已儲存至：{save_path}")
