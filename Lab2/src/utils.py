@@ -71,11 +71,15 @@ class JointTransform:
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
+        random_resized_crop=True,
+        crop_scale=(0.7, 1.0),
     ):
-        self.image_size   = image_size
-        self.hflip_p      = hflip_p
-        self.vflip_p      = vflip_p
-        self.rotation_deg = rotation_deg
+        self.image_size          = image_size
+        self.hflip_p             = hflip_p
+        self.vflip_p             = vflip_p
+        self.rotation_deg        = rotation_deg
+        self.random_resized_crop = random_resized_crop
+        self.crop_scale          = crop_scale
 
         self.color_jitter = transforms.ColorJitter(
             brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
@@ -88,24 +92,35 @@ class JointTransform:
         self.to_tensor_mask = transforms.PILToTensor()
 
     def __call__(self, image: Image.Image, mask: Image.Image):
-        # 1. Resize（兩者一起）
+        # 1. RandomResizedCrop（image 和 mask 裁同一塊）
+        if self.random_resized_crop:
+            w, h   = image.size
+            scale  = random.uniform(self.crop_scale[0], self.crop_scale[1])
+            crop_w = int(w * scale)
+            crop_h = int(h * scale)
+            left   = random.randint(0, w - crop_w)
+            top    = random.randint(0, h - crop_h)
+            image  = image.crop((left, top, left + crop_w, top + crop_h))
+            mask   = mask.crop((left, top, left + crop_w, top + crop_h))
+
+        # 2. Resize（兩者一起）
         image = transforms.functional.resize(image, (self.image_size, self.image_size))
         mask  = transforms.functional.resize(
             mask, (self.image_size, self.image_size),
             interpolation=transforms.InterpolationMode.NEAREST
         )
 
-        # 2. Random Horizontal Flip（同一個隨機決定）
+        # 3. Random Horizontal Flip（同一個隨機決定）
         if random.random() < self.hflip_p:
             image = transforms.functional.hflip(image)
             mask  = transforms.functional.hflip(mask)
 
-        # 3. Random Vertical Flip
+        # 4. Random Vertical Flip
         if random.random() < self.vflip_p:
             image = transforms.functional.vflip(image)
             mask  = transforms.functional.vflip(mask)
 
-        # 4. Random Rotation（同一個角度）
+        # 5. Random Rotation（同一個角度）
         angle = random.uniform(-self.rotation_deg, self.rotation_deg)
         image = transforms.functional.rotate(image, angle)
         mask  = transforms.functional.rotate(
@@ -113,11 +128,11 @@ class JointTransform:
             interpolation=transforms.InterpolationMode.NEAREST
         )
 
-        # 5. Color Jitter（只套用在 image）
+        # 6. Color Jitter（只套用在 image）
         if self.color_jitter is not None:
             image = self.color_jitter(image)
 
-        # 6. ToTensor + Normalize
+        # 7. ToTensor + Normalize
         image = self.to_tensor_img(image)
         mask  = self.to_tensor_mask(mask)  # shape (1, H, W), dtype uint8
 
@@ -132,6 +147,8 @@ def get_train_transform():
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
+        random_resized_crop=True,
+        crop_scale=(0.7, 1.0),
     )
 
 
