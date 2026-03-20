@@ -147,8 +147,7 @@ def get_train_transform():
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
-        random_resized_crop=True,
-        crop_scale=(0.7, 1.0),
+        random_resized_crop=False,
     )
 
 
