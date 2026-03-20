@@ -19,7 +19,7 @@ URLS = {
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
-IMAGE_SIZE = 384  # resize 目標尺寸
+IMAGE_SIZE = 512  # resize 目標尺寸
 
 
 def _download_with_progress(url: str, dest: Path) -> None:
