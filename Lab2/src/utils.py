@@ -47,11 +47,11 @@ def dice_score(pred, target, threshold=0.5, smooth=1e-6):
 
 def combined_loss(pred, target):
     """
-    0.3 × BCEWithLogitsLoss + 0.7 × DiceLoss
+    0.5 × BCEWithLogitsLoss + 0.5 × DiceLoss
     """
     bce = F.binary_cross_entropy_with_logits(pred, target.float())
     d   = dice_loss(pred, target)
-    return 0.3 * bce + 0.7 * d
+    return 0.5 * bce + 0.5 * d
 
 
 # ---------------------------------------------------------------------------

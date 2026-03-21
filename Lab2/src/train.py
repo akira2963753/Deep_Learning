@@ -89,8 +89,6 @@ def train(args):
     )
 
     best_dice = 0.0
-    early_stop_counter = 0
-    early_stop_patience = 20
 
     for epoch in range(1, args.epochs + 1):
         # ── 訓練 ──
@@ -135,14 +133,8 @@ def train(args):
         # 儲存最佳模型
         if val_dice > best_dice:
             best_dice = val_dice
-            early_stop_counter = 0
             torch.save(model.state_dict(), save_path)
             print(f"  ✓ 已儲存最佳模型（val_dice={best_dice:.4f}）→ {save_path}")
-        else:
-            early_stop_counter += 1
-            if early_stop_counter >= early_stop_patience:
-                print(f"\n  Early stopping triggered（{early_stop_patience} epochs 無改善）")
-                break
 
         scheduler.step(val_dice)
 
