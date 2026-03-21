@@ -149,11 +149,11 @@ class ResNet34UNet(nn.Module):
 
 if __name__ == "__main__":
     model = ResNet34UNet(out_channels=1)
-    x = torch.randn(2, 3, 512, 512)
+    x = torch.randn(2, 3, 384, 384)
     out = model(x)
     print(f"Input:  {x.shape}")
     print(f"Output: {out.shape}")
-    assert out.shape == (2, 1, 512, 512), f"Output shape error: {out.shape}"
+    assert out.shape == (2, 1, 384, 384), f"Output shape error: {out.shape}"
     print("ResNet34UNet shape 驗證通過！")
 
     total_params = sum(p.numel() for p in model.parameters())
