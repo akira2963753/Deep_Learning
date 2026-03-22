@@ -1,0 +1,29 @@
+AI Tool Disclosure: I used Claude Code by Anthropic to assist with debugging and code review.
+All design decisions are my own. Disclosed per course academic honesty policy.
+
+1. Implementation Highlights
+
+2. Data Preprocessing Strategy
+圖片與 mask 統一 resize 至 384x384。Trimap 轉 binary mask：1 = 前景，2,3 = 背景。
+訓練集套用 Joint Augmentation：HFlip（p=0.5）、VFlip（p=0.5）、
+Rotation（±15°）、ColorJitter（brightness/contrast/saturation=0.2, hue=0.1）。
+幾何變換同步套用於 image 與 mask，顏色變換僅套用於 image。
+驗證與測試集僅做 resize 與 ImageNet normalization。
+
+3. Training Strategy
+Loss：0.5 x BCE + 0.5 x Dice Loss。
+優化器：AdamW（lr=1e-4, weight_decay=1e-4）。
+排程器：ReduceLROnPlateau（mode=max, patience=5, factor=0.5）。
+推論時使用 TTA（原圖 + hflip + vflip + hflip&vflip 四路平均），
+並掃描 threshold（0.30~0.70）找最佳閾值。
+
+4. Key Observations
+UNet 無 BN 導致前期收斂慢，前幾 epoch val Dice 接近 0，需更多 epoch 才穩定。
+ResNet34-UNet 因 BN 與殘差連接，收斂速度顯著較快。
+TTA 與 threshold 掃描帶來約 +0.005~0.01 的分數提升。
+RandomResizedCrop 與 512x512 均未改善，維持 384x384。
+
+5. Comparison between UNet and ResNet34_UNet
+ResNet34-UNet 參數量更多、特徵表達能力更強，BN 使訓練更穩定，收斂更快。
+UNet 嚴格遵循原始論文（valid conv、無 BN、center crop），架構精簡但訓練難度較高。
+兩者訓練策略相同，ResNet34-UNet 在 Kaggle 上最終表現略優於 UNet。

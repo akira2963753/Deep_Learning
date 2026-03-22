@@ -87,8 +87,8 @@ def train(args):
 
     # 優化器 & 排程器
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="max", patience=5, factor=0.5
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs, eta_min=1e-6
     )
 
     best_dice  = 0.0
@@ -152,7 +152,7 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  ✓ 已儲存最佳模型（val_dice={best_dice:.4f}）→ {save_path}")
 
-        scheduler.step(val_dice)
+        scheduler.step()
 
         # 儲存 last checkpoint（供 resume 使用）
         torch.save({
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root",   type=str, default="dataset/oxford-iiit-pet")
     parser.add_argument("--epochs",      type=int, default=50)
     parser.add_argument("--batch_size",  type=int, default=16)
-    parser.add_argument("--lr",          type=float, default=1e-4)
+    parser.add_argument("--lr",          type=float, default=3e-4)
     parser.add_argument("--weight_decay",type=float, default=1e-4)
     parser.add_argument("--save_dir",    type=str, default="saved_models")
     parser.add_argument("--num_workers", type=int, default=2)

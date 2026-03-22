@@ -3,3 +3,4 @@ torchvision>=0.15.0
 numpy
 Pillow
 tqdm
+scipy

@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 
-
 class DoubleConv(nn.Module):
-    """建構一個兩層 Conv + ReLU 的 Component，方便取用"""
+    """ Double (Conv + ReLU) """
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -17,7 +16,6 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-
 class Down(nn.Module):
     """MaxPool2d(2×2) + DoubleConv"""
 
@@ -28,7 +26,6 @@ class Down(nn.Module):
 
     def forward(self, x):
         return self.conv(self.pool(x))
-
 
 class Up(nn.Module):
     """ConvTranspose2d(2×2) upsample + center crop skip + DoubleConv"""
@@ -51,13 +48,11 @@ class Up(nn.Module):
         x    = torch.cat([skip, x], dim=1)
         return self.conv(x)
 
-
 class UNet(nn.Module):
     """
-    - UNet Architecture Based on Original Paper
-    - Encoder: 3 > 64 > 128 > 256 > 512 > 1024
-    - Decoder: 1024 > 512 > 256 > 128 > 64
-    - Output:  64 > out_channels
+    - Encoder : 3 > 64 > 128 > 256 > 512 > 1024
+    - Decoder : 1024 > 512 > 256 > 128 > 64
+    - Output  : 64 > out_channels
     """
 
     def __init__(self, in_channels=3, out_channels=1):
@@ -73,10 +68,10 @@ class UNet(nn.Module):
         self.bottleneck = Down(512, 1024)
 
         # Decoder
-        self.dec1 = Up(1024, 512)
-        self.dec2 = Up(512, 256)
-        self.dec3 = Up(256, 128)
-        self.dec4 = Up(128, 64)
+        self.dec4 = Up(1024, 512)
+        self.dec3 = Up(512, 256)
+        self.dec2 = Up(256, 128)
+        self.dec1 = Up(128, 64)
 
         # Output
         self.out_conv = nn.Conv2d(64, out_channels, kernel_size=1)
@@ -92,9 +87,9 @@ class UNet(nn.Module):
         b = self.bottleneck(s4)
 
         # Decoder
-        x = self.dec1(b, s4)
-        x = self.dec2(x, s3)
-        x = self.dec3(x, s2)
-        x = self.dec4(x, s1)
+        x = self.dec4(b, s4)
+        x = self.dec3(x, s3)
+        x = self.dec2(x, s2)
+        x = self.dec1(x, s1)
 
         return self.out_conv(x)

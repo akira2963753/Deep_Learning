@@ -3,7 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
+from torchvision.transforms import functional as TF
 from PIL import Image
+from scipy.ndimage import gaussian_filter, map_coordinates
+import numpy as np
 
 # ImageNet 標準化參數（與 oxford_pet.py 一致）
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -71,11 +74,17 @@ class JointTransform:
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
+        elastic_p=0.5,
+        elastic_alpha=80,
+        elastic_sigma=10,
     ):
         self.image_size   = image_size
         self.hflip_p      = hflip_p
         self.vflip_p      = vflip_p
         self.rotation_deg = rotation_deg
+        self.elastic_p     = elastic_p
+        self.elastic_alpha = elastic_alpha
+        self.elastic_sigma = elastic_sigma
 
         self.color_jitter = transforms.ColorJitter(
             brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
@@ -113,15 +122,48 @@ class JointTransform:
             interpolation=transforms.InterpolationMode.NEAREST
         )
 
-        # 5. Color Jitter（只套用在 image）
+        # 5. Elastic Deformation（同一組位移場套用在 image 和 mask）
+        if random.random() < self.elastic_p:
+            image, mask = self._elastic_deform(image, mask)
+
+        # 6. Color Jitter（只套用在 image）
         if self.color_jitter is not None:
             image = self.color_jitter(image)
 
-        # 6. ToTensor + Normalize
+        # 7. ToTensor + Normalize
         image = self.to_tensor_img(image)
         mask  = self.to_tensor_mask(mask)  # shape (1, H, W), dtype uint8
 
         return image, mask
+
+    def _elastic_deform(self, image: Image.Image, mask: Image.Image):
+        """
+        Elastic deformation（Simard et al., 2003 / UNet 原論文做法）。
+        對 image 和 mask 施加相同的隨機位移場。
+        """
+        h, w = self.image_size, self.image_size
+        # 產生隨機位移場，用高斯平滑使其連續
+        dx = gaussian_filter(np.random.randn(h, w) * self.elastic_alpha, self.elastic_sigma)
+        dy = gaussian_filter(np.random.randn(h, w) * self.elastic_alpha, self.elastic_sigma)
+
+        y, x = np.meshgrid(np.arange(h), np.arange(w), indexing='ij')
+        indices_y = np.clip(y + dy, 0, h - 1)
+        indices_x = np.clip(x + dx, 0, w - 1)
+
+        # 對 image 的每個 channel 用三次插值
+        img_arr = np.array(image)
+        result_img = np.zeros_like(img_arr)
+        for c in range(img_arr.shape[2]):
+            result_img[:, :, c] = map_coordinates(
+                img_arr[:, :, c], [indices_y, indices_x], order=1, mode='reflect'
+            )
+        # 對 mask 用最近鄰插值（避免產生非 0/1 的值）
+        mask_arr = np.array(mask)
+        result_mask = map_coordinates(
+            mask_arr, [indices_y, indices_x], order=0, mode='reflect'
+        )
+
+        return Image.fromarray(result_img), Image.fromarray(result_mask)
 
 
 def get_train_transform():
@@ -132,6 +174,9 @@ def get_train_transform():
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
+        elastic_p=0.5,
+        elastic_alpha=80,
+        elastic_sigma=10,
     )
 
 
