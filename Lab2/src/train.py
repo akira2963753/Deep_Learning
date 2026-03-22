@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import sys
 
 import torch
@@ -62,6 +63,12 @@ class AugmentedPetDataset(torch.utils.data.Dataset):
 # ---------------------------------------------------------------------------
 
 def train(args):
+    # 固定種子，確保可重現
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"使用裝置：{device}")
 
