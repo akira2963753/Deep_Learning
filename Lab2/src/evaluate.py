@@ -12,6 +12,14 @@ from src.oxford_pet import OxfordPetDataset
 from src.utils import get_val_transform
 
 
+def center_crop_mask(mask, target_h, target_w):
+    """將 mask 中心裁切到與模型輸出相同的空間大小"""
+    h, w = mask.shape[2], mask.shape[3]
+    y1 = (h - target_h) // 2
+    x1 = (w - target_w) // 2
+    return mask[:, :, y1:y1 + target_h, x1:x1 + target_w]
+
+
 def dice_score_with_threshold(pred, target, threshold=0.5, smooth=1e-6):
     pred = torch.sigmoid(pred)
     pred = (pred > threshold).float()
@@ -53,7 +61,7 @@ def evaluate(args):
         for images, masks in val_loader:
             images = images.to(device)
             preds  = model(images)
-            preds  = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
+            masks  = center_crop_mask(masks, preds.shape[2], preds.shape[3])
             all_preds.append(preds.cpu())
             all_masks.append(masks.cpu().float())
 

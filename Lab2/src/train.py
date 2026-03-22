@@ -16,6 +16,14 @@ from PIL import Image
 import numpy as np
 
 
+def center_crop_mask(mask, target_h, target_w):
+    """將 mask 中心裁切到與模型輸出相同的空間大小"""
+    h, w = mask.shape[2], mask.shape[3]
+    y1 = (h - target_h) // 2
+    x1 = (w - target_w) // 2
+    return mask[:, :, y1:y1 + target_h, x1:x1 + target_w]
+
+
 # ---------------------------------------------------------------------------
 # 支援 JointTransform 的 Dataset wrapper
 # ---------------------------------------------------------------------------
@@ -119,8 +127,8 @@ def train(args):
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
                 preds = model(images)
-                preds = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
-                loss  = combined_loss(preds, masks)
+                masks_cropped = center_crop_mask(masks, preds.shape[2], preds.shape[3])
+                loss  = combined_loss(preds, masks_cropped)
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -140,10 +148,10 @@ def train(args):
                 masks  = masks.to(device).float()
 
                 with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
-                    preds     = model(images)
-                    preds     = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
-                    val_loss += combined_loss(preds, masks).item() * images.size(0)
-                val_dice += dice_score(preds, masks.float()) * images.size(0)
+                    preds = model(images)
+                    masks_cropped = center_crop_mask(masks, preds.shape[2], preds.shape[3])
+                    val_loss += combined_loss(preds, masks_cropped).item() * images.size(0)
+                val_dice += dice_score(preds, masks_cropped.float()) * images.size(0)
 
         val_loss /= len(val_dataset)
         val_dice /= len(val_dataset)
