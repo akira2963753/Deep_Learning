@@ -31,6 +31,18 @@ from src.oxford_pet import OxfordPetDataset
 from src.utils import get_val_transform, IMAGE_SIZE
 
 
+def compute_pad_size(input_size, model):
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    import torch
+    dummy = torch.zeros(1, 3, input_size, input_size)
+    with torch.no_grad():
+        out = model.cpu()(dummy)
+    out_size = out.shape[2]
+    # 每邊需要 pad 的量
+    pad_per_side = (input_size - out_size + 1) // 2 + 1  # 多 pad 一點確保夠大
+    return pad_per_side
+
+
 # ---------------------------------------------------------------------------
 # RLE encoding（Kaggle 常用格式：column-major / Fortran order）
 # ---------------------------------------------------------------------------
@@ -72,8 +84,11 @@ def run_inference(args):
         raise ValueError(f"未知模型：{args.model}")
 
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    # 計算 reflection padding 量（在移到 GPU 之前用 CPU 算）
+    pad = compute_pad_size(IMAGE_SIZE, model)
     model.to(device).eval()
     print(f"已載入 checkpoint：{args.checkpoint}")
+    print(f"推論用 reflection padding：每邊 {pad} 像素")
 
     # 測試集（只有 image，無 mask）
     img_tf, _ = get_val_transform()
@@ -121,9 +136,14 @@ def run_inference(args):
             images = images.to(device)
 
             def _forward(imgs):
-                logits = model(imgs)
-                logits = F.interpolate(logits, size=(IMAGE_SIZE, IMAGE_SIZE),
-                                       mode='bilinear', align_corners=False)
+                # Reflection padding → model → center crop 回原始大小
+                imgs_padded = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
+                logits = model(imgs_padded)
+                # Center crop 回 IMAGE_SIZE
+                oh, ow = logits.shape[2], logits.shape[3]
+                y1 = (oh - IMAGE_SIZE) // 2
+                x1 = (ow - IMAGE_SIZE) // 2
+                logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
                 return torch.sigmoid(logits)
 
             if args.tta:

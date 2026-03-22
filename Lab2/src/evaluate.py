@@ -8,16 +8,18 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.oxford_pet import OxfordPetDataset
+from src.oxford_pet import OxfordPetDataset, IMAGE_SIZE
 from src.utils import get_val_transform
 
 
-def center_crop_mask(mask, target_h, target_w):
-    """將 mask 中心裁切到與模型輸出相同的空間大小"""
-    h, w = mask.shape[2], mask.shape[3]
-    y1 = (h - target_h) // 2
-    x1 = (w - target_w) // 2
-    return mask[:, :, y1:y1 + target_h, x1:x1 + target_w]
+def compute_pad_size(input_size, model):
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    dummy = torch.zeros(1, 3, input_size, input_size)
+    with torch.no_grad():
+        out = model.cpu()(dummy)
+    out_size = out.shape[2]
+    pad_per_side = (input_size - out_size + 1) // 2 + 1
+    return pad_per_side
 
 
 def dice_score_with_threshold(pred, target, threshold=0.5, smooth=1e-6):
@@ -44,8 +46,10 @@ def evaluate(args):
         raise ValueError(f"未知模型：{args.model}")
 
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    pad = compute_pad_size(IMAGE_SIZE, model)
     model.to(device).eval()
     print(f"已載入 checkpoint：{args.checkpoint}")
+    print(f"評估用 reflection padding：每邊 {pad} 像素")
 
     # 資料集
     img_tf, mask_tf = get_val_transform()
@@ -60,8 +64,13 @@ def evaluate(args):
     with torch.no_grad():
         for images, masks in val_loader:
             images = images.to(device)
-            preds  = model(images)
-            masks  = center_crop_mask(masks, preds.shape[2], preds.shape[3])
+            # Reflection padding → model → center crop 回原始大小
+            images_padded = F.pad(images, [pad, pad, pad, pad], mode='reflect')
+            preds = model(images_padded)
+            oh, ow = preds.shape[2], preds.shape[3]
+            y1 = (oh - IMAGE_SIZE) // 2
+            x1 = (ow - IMAGE_SIZE) // 2
+            preds = preds[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
             all_preds.append(preds.cpu())
             all_masks.append(masks.cpu().float())
 
