@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
-from torchvision.transforms import functional as TF
 from PIL import Image
 from scipy.ndimage import gaussian_filter, map_coordinates
 import numpy as np

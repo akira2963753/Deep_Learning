@@ -87,9 +87,11 @@ def train(args):
 
     # 優化器 & 排程器
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs, eta_min=1e-6
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="max", patience=5, factor=0.5
     )
+
+    scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
     best_dice  = 0.0
     start_epoch = 1
@@ -100,6 +102,8 @@ def train(args):
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
         scheduler.load_state_dict(ckpt["scheduler"])
+        if "scaler" in ckpt:
+            scaler.load_state_dict(ckpt["scaler"])
         start_epoch = ckpt["epoch"] + 1
         best_dice   = ckpt["best_dice"]
         print(f"Resume 從 epoch {start_epoch}，目前最佳 val_dice={best_dice:.4f}")
@@ -112,12 +116,16 @@ def train(args):
             images = images.to(device)
             masks  = masks.to(device).float()
 
-            optimizer.zero_grad()
-            preds = model(images)
-            preds = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
-            loss  = combined_loss(preds, masks)
-            loss.backward()
-            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
+                preds = model(images)
+                preds = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
+                loss  = combined_loss(preds, masks)
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            scaler.step(optimizer)
+            scaler.update()
             train_loss += loss.item() * images.size(0)
 
         train_loss /= len(train_dataset)
@@ -131,10 +139,11 @@ def train(args):
                 images = images.to(device)
                 masks  = masks.to(device).float()
 
-                preds     = model(images)
-                preds     = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
-                val_loss += combined_loss(preds, masks).item() * images.size(0)
-                val_dice += dice_score(preds, masks) * images.size(0)
+                with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
+                    preds     = model(images)
+                    preds     = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
+                    val_loss += combined_loss(preds, masks).item() * images.size(0)
+                val_dice += dice_score(preds, masks.float()) * images.size(0)
 
         val_loss /= len(val_dataset)
         val_dice /= len(val_dataset)
@@ -152,7 +161,7 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  ✓ 已儲存最佳模型（val_dice={best_dice:.4f}）→ {save_path}")
 
-        scheduler.step()
+        scheduler.step(val_dice)
 
         # 儲存 last checkpoint（供 resume 使用）
         torch.save({
@@ -160,6 +169,7 @@ def train(args):
             "model":     model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
+            "scaler":    scaler.state_dict(),
             "best_dice": best_dice,
         }, last_path)
 
@@ -174,7 +184,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_root",   type=str, default="dataset/oxford-iiit-pet")
     parser.add_argument("--epochs",      type=int, default=50)
     parser.add_argument("--batch_size",  type=int, default=16)
-    parser.add_argument("--lr",          type=float, default=3e-4)
+    parser.add_argument("--lr",          type=float, default=1e-4)
     parser.add_argument("--weight_decay",type=float, default=1e-4)
     parser.add_argument("--save_dir",    type=str, default="saved_models")
     parser.add_argument("--num_workers", type=int, default=2)
