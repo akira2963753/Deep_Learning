@@ -33,7 +33,6 @@ from src.utils import get_val_transform, IMAGE_SIZE
 
 def compute_pad_size(input_size, model):
     """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
-    import torch
     dummy = torch.zeros(1, 3, input_size, input_size)
     with torch.no_grad():
         out = model.cpu()(dummy)
