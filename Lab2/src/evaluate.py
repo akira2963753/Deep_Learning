@@ -3,6 +3,7 @@ import os
 import sys
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,6 +53,7 @@ def evaluate(args):
         for images, masks in val_loader:
             images = images.to(device)
             preds  = model(images)
+            preds  = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
             all_preds.append(preds.cpu())
             all_masks.append(masks.cpu().float())
 
