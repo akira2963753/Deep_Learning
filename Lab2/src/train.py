@@ -71,6 +71,8 @@ def train(args):
 
     os.makedirs(args.save_dir, exist_ok=True)
 
+    last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
+
     # 資料集
     train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
@@ -89,9 +91,20 @@ def train(args):
         optimizer, mode="max", patience=5, factor=0.5
     )
 
-    best_dice = 0.0
+    best_dice  = 0.0
+    start_epoch = 1
 
-    for epoch in range(1, args.epochs + 1):
+    # Resume
+    if args.resume and os.path.exists(last_path):
+        ckpt = torch.load(last_path, map_location=device)
+        model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        start_epoch = ckpt["epoch"] + 1
+        best_dice   = ckpt["best_dice"]
+        print(f"Resume 從 epoch {start_epoch}，目前最佳 val_dice={best_dice:.4f}")
+
+    for epoch in range(start_epoch, args.epochs + 1):
         # ── 訓練 ──
         model.train()
         train_loss = 0.0
@@ -141,6 +154,15 @@ def train(args):
 
         scheduler.step(val_dice)
 
+        # 儲存 last checkpoint（供 resume 使用）
+        torch.save({
+            "epoch":     epoch,
+            "model":     model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "best_dice": best_dice,
+        }, last_path)
+
     print(f"\n訓練結束。最佳 val Dice Score: {best_dice:.4f}")
     print(f"模型已儲存至：{save_path}")
 
@@ -158,6 +180,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=2)
     parser.add_argument("--splits_dir",  type=str, default=None,
                         help="Kaggle 提供的 split 目錄（含 train.txt / val.txt）")
+    parser.add_argument("--resume",      action="store_true",
+                        help="從 last checkpoint 繼續訓練")
     args = parser.parse_args()
 
     train(args)
