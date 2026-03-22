@@ -3,6 +3,7 @@ import os
 import sys
 
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
@@ -100,6 +101,7 @@ def train(args):
 
             optimizer.zero_grad()
             preds = model(images)
+            preds = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
             loss  = combined_loss(preds, masks)
             loss.backward()
             optimizer.step()
@@ -117,6 +119,7 @@ def train(args):
                 masks  = masks.to(device).float()
 
                 preds     = model(images)
+                preds     = F.interpolate(preds, size=masks.shape[2:], mode='bilinear', align_corners=False)
                 val_loss += combined_loss(preds, masks).item() * images.size(0)
                 val_dice += dice_score(preds, masks) * images.size(0)
 

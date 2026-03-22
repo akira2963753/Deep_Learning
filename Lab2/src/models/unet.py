@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class DoubleConv(nn.Module):
-    """兩層 Conv2d(3×3, no padding) + ReLU（原始 UNet 論文架構）"""
+    """建構一個兩層 Conv + ReLU 的 Component，方便取用"""
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -55,14 +54,10 @@ class Up(nn.Module):
 
 class UNet(nn.Module):
     """
-    原始 UNet 架構（無 padding，copy and crop skip connections）。
-
-    Encoder: 3 → 64 → 128 → 256 → 512 → 1024（bottleneck）
-    Decoder: 1024 → 512 → 256 → 128 → 64
-    Output:  64 → out_channels，最後 bilinear upsample 回原始輸入尺寸
-
-    forward() 回傳 logits（shape: B × out_channels × H × W）
-    不含 sigmoid，讓 BCEWithLogitsLoss 處理數值穩定性。
+    - UNet Architecture Based on Original Paper
+    - Encoder: 3 > 64 > 128 > 256 > 512 > 1024
+    - Decoder: 1024 > 512 > 256 > 128 > 64
+    - Output:  64 > out_channels
     """
 
     def __init__(self, in_channels=3, out_channels=1):
@@ -74,22 +69,20 @@ class UNet(nn.Module):
         self.enc3 = Down(128, 256)
         self.enc4 = Down(256, 512)
 
-        # Bottleneck
+        # Bottleneck Layer
         self.bottleneck = Down(512, 1024)
 
         # Decoder
-        self.dec4 = Up(1024, 512)
-        self.dec3 = Up(512, 256)
-        self.dec2 = Up(256, 128)
-        self.dec1 = Up(128, 64)
+        self.dec1 = Up(1024, 512)
+        self.dec2 = Up(512, 256)
+        self.dec3 = Up(256, 128)
+        self.dec4 = Up(128, 64)
 
         # Output
         self.out_conv = nn.Conv2d(64, out_channels, kernel_size=1)
 
     def forward(self, x):
-        input_size = x.shape[2:]
-
-        # Encoder（保留 skip connections）
+        # Encoder
         s1 = self.enc1(x)
         s2 = self.enc2(s1)
         s3 = self.enc3(s2)
@@ -98,28 +91,10 @@ class UNet(nn.Module):
         # Bottleneck
         b = self.bottleneck(s4)
 
-        # Decoder（center crop skip connections）
-        x = self.dec4(b, s4)
-        x = self.dec3(x, s3)
-        x = self.dec2(x, s2)
-        x = self.dec1(x, s1)
+        # Decoder
+        x = self.dec1(b, s4)
+        x = self.dec2(x, s3)
+        x = self.dec3(x, s2)
+        x = self.dec4(x, s1)
 
-        x = self.out_conv(x)
-
-        # Bilinear upsample 回原始輸入尺寸
-        x = F.interpolate(x, size=input_size, mode='bilinear', align_corners=False)
-
-        return x
-
-
-if __name__ == "__main__":
-    model = UNet(in_channels=3, out_channels=1)
-    x = torch.randn(2, 3, 384, 384)
-    out = model(x)
-    print(f"Input:  {x.shape}")
-    print(f"Output: {out.shape}")
-    assert out.shape == (2, 1, 384, 384), f"Output shape error: {out.shape}"
-    print("UNet shape 驗證通過！")
-
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Total parameters: {total_params:,}")
+        return self.out_conv(x)

@@ -25,8 +25,10 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import torch.nn.functional as F
+
 from src.oxford_pet import OxfordPetDataset
-from src.utils import get_val_transform
+from src.utils import get_val_transform, IMAGE_SIZE
 
 
 # ---------------------------------------------------------------------------
@@ -118,18 +120,21 @@ def run_inference(args):
 
             images = images.to(device)
 
+            def _forward(imgs):
+                logits = model(imgs)
+                logits = F.interpolate(logits, size=(IMAGE_SIZE, IMAGE_SIZE),
+                                       mode='bilinear', align_corners=False)
+                return torch.sigmoid(logits)
+
             if args.tta:
                 # Test Time Augmentation：原圖 + 水平翻轉 + 垂直翻轉 + 兩者翻轉
-                p0 = torch.sigmoid(model(images))
-                p1 = torch.sigmoid(model(torch.flip(images, [3])))           # hflip
-                p1 = torch.flip(p1, [3])
-                p2 = torch.sigmoid(model(torch.flip(images, [2])))           # vflip
-                p2 = torch.flip(p2, [2])
-                p3 = torch.sigmoid(model(torch.flip(images, [2, 3])))        # hflip + vflip
-                p3 = torch.flip(p3, [2, 3])
+                p0 = _forward(images)
+                p1 = torch.flip(_forward(torch.flip(images, [3])), [3])      # hflip
+                p2 = torch.flip(_forward(torch.flip(images, [2])), [2])      # vflip
+                p3 = torch.flip(_forward(torch.flip(images, [2, 3])), [2, 3])# hflip+vflip
                 preds = (p0 + p1 + p2 + p3) / 4.0
             else:
-                preds = torch.sigmoid(model(images))
+                preds = _forward(images)
             preds  = (preds > args.threshold).cpu().numpy()  # B×1×H×W bool
 
             for i, (pred, name) in enumerate(zip(preds, names)):
