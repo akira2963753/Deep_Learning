@@ -174,7 +174,7 @@ def get_train_transform():
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
-        elastic_p=0.5,
+        elastic_p=0.0,
         elastic_alpha=80,
         elastic_sigma=10,
     )
