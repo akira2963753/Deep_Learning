@@ -165,7 +165,7 @@ class JointTransform:
         return Image.fromarray(result_img), Image.fromarray(result_mask)
 
 
-def get_train_transform():
+def get_train_transform(elastic_p=0.0):
     """訓練集用（含 augmentation）"""
     return JointTransform(
         image_size=IMAGE_SIZE,
@@ -173,7 +173,7 @@ def get_train_transform():
         vflip_p=0.5,
         rotation_deg=15,
         color_jitter=True,
-        elastic_p=0.0,
+        elastic_p=elastic_p,
         elastic_alpha=80,
         elastic_sigma=10,
     )
