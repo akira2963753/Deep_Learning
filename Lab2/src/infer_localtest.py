@@ -108,8 +108,15 @@ def run(args):
         raise ValueError(f"未知模型：{args.model}")
 
     model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    # 計算 reflection padding 量
+    dummy = torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE)
+    with torch.no_grad():
+        out = model.cpu()(dummy)
+    out_size = out.shape[2]
+    pad = (IMAGE_SIZE - out_size + 1) // 2 + 1
     model.to(device).eval()
     print(f"載入模型：{args.model}  checkpoint：{args.checkpoint}")
+    print(f"Reflection padding：每邊 {pad} 像素")
 
     # 資料集
     img_tf, _ = get_val_transform()
@@ -127,9 +134,12 @@ def run(args):
             images = images.to(device)
 
             def _forward(imgs):
-                logits = model(imgs)
-                logits = F.interpolate(logits, size=(IMAGE_SIZE, IMAGE_SIZE),
-                                       mode='bilinear', align_corners=False)
+                imgs_padded = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
+                logits = model(imgs_padded)
+                oh, ow = logits.shape[2], logits.shape[3]
+                y1 = (oh - IMAGE_SIZE) // 2
+                x1 = (ow - IMAGE_SIZE) // 2
+                logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
                 return torch.sigmoid(logits)
 
             if args.tta:
