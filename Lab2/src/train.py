@@ -12,17 +12,31 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset, _get_splits
-from src.utils import combined_loss, dice_score, get_train_transform, get_val_transform, JointTransform
+from src.utils import combined_loss, dice_score, get_train_transform, get_val_transform, JointTransform, IMAGE_SIZE
 from PIL import Image
 import numpy as np
 
 
-def center_crop_mask(mask, target_h, target_w):
-    """將 mask 中心裁切到與模型輸出相同的空間大小"""
-    h, w = mask.shape[2], mask.shape[3]
-    y1 = (h - target_h) // 2
-    x1 = (w - target_w) // 2
-    return mask[:, :, y1:y1 + target_h, x1:x1 + target_w]
+def compute_pad_size(input_size, model):
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    dummy = torch.zeros(1, 3, input_size, input_size)
+    with torch.no_grad():
+        out = model(dummy)
+    out_size = out.shape[2]
+    pad_per_side = (input_size - out_size + 1) // 2 + 1
+    return pad_per_side
+
+
+def pad_and_crop(images, masks, model, pad, image_size):
+    """Reflection pad 輸入 → model forward → center crop 回原始大小"""
+    images_padded = F.pad(images, [pad, pad, pad, pad], mode='reflect')
+    preds = model(images_padded)
+    # Center crop 回 image_size
+    oh, ow = preds.shape[2], preds.shape[3]
+    y1 = (oh - image_size) // 2
+    x1 = (ow - image_size) // 2
+    preds = preds[:, :, y1:y1 + image_size, x1:x1 + image_size]
+    return preds
 
 
 # ---------------------------------------------------------------------------
@@ -75,14 +89,19 @@ def train(args):
     # 建立模型
     if args.model == "unet":
         from src.models.unet import UNet
-        model = UNet(in_channels=3, out_channels=1).to(device)
+        model = UNet(in_channels=3, out_channels=1)
         save_path = os.path.join(args.save_dir, "unet_best.pth")
     elif args.model == "resnet34_unet":
         from src.models.resnet34_unet import ResNet34UNet
-        model = ResNet34UNet(out_channels=1).to(device)
+        model = ResNet34UNet(out_channels=1)
         save_path = os.path.join(args.save_dir, "resnet34_unet_best.pth")
     else:
         raise ValueError(f"未知模型：{args.model}")
+
+    # 計算 reflection padding 量（在 CPU 上算）
+    pad = compute_pad_size(IMAGE_SIZE, model)
+    print(f"Reflection padding：每邊 {pad} 像素")
+    model.to(device)
 
     os.makedirs(args.save_dir, exist_ok=True)
 
@@ -133,9 +152,8 @@ def train(args):
 
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
-                preds = model(images)
-                masks_cropped = center_crop_mask(masks, preds.shape[2], preds.shape[3])
-                loss  = combined_loss(preds, masks_cropped)
+                preds = pad_and_crop(images, masks, model, pad, IMAGE_SIZE)
+                loss  = combined_loss(preds, masks)
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -155,10 +173,9 @@ def train(args):
                 masks  = masks.to(device).float()
 
                 with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
-                    preds = model(images)
-                    masks_cropped = center_crop_mask(masks, preds.shape[2], preds.shape[3])
-                    val_loss += combined_loss(preds, masks_cropped).item() * images.size(0)
-                val_dice += dice_score(preds, masks_cropped.float()) * images.size(0)
+                    preds = pad_and_crop(images, masks, model, pad, IMAGE_SIZE)
+                    val_loss += combined_loss(preds, masks).item() * images.size(0)
+                val_dice += dice_score(preds, masks.float()) * images.size(0)
 
         val_loss /= len(val_dataset)
         val_dice /= len(val_dataset)
