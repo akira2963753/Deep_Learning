@@ -18,24 +18,29 @@ import numpy as np
 
 
 def compute_pad_size(input_size, model):
-    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size。
+    若模型輸出已等於輸入（如 ResNet34-UNet），回傳 0。"""
     dummy = torch.zeros(1, 3, input_size, input_size)
     with torch.no_grad():
         out = model(dummy)
     out_size = out.shape[2]
+    if out_size >= input_size:
+        return 0
     pad_per_side = (input_size - out_size + 1) // 2 + 1
     return pad_per_side
 
 
-def pad_and_crop(images, masks, model, pad, image_size):
-    """Reflection pad 輸入 → model forward → center crop 回原始大小"""
-    images_padded = F.pad(images, [pad, pad, pad, pad], mode='reflect')
-    preds = model(images_padded)
-    # Center crop 回 image_size
-    oh, ow = preds.shape[2], preds.shape[3]
-    y1 = (oh - image_size) // 2
-    x1 = (ow - image_size) // 2
-    preds = preds[:, :, y1:y1 + image_size, x1:x1 + image_size]
+def pad_and_crop(images, model, pad, image_size):
+    """Reflection pad 輸入 → model forward → center crop 回原始大小。
+    pad=0 時直接 forward（適用於 ResNet34-UNet 等 same-conv 模型）。"""
+    if pad > 0:
+        images = F.pad(images, [pad, pad, pad, pad], mode='reflect')
+    preds = model(images)
+    if pad > 0:
+        oh, ow = preds.shape[2], preds.shape[3]
+        y1 = (oh - image_size) // 2
+        x1 = (ow - image_size) // 2
+        preds = preds[:, :, y1:y1 + image_size, x1:x1 + image_size]
     return preds
 
 
@@ -152,7 +157,7 @@ def train(args):
 
             optimizer.zero_grad(set_to_none=True)
             with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
-                preds = pad_and_crop(images, masks, model, pad, IMAGE_SIZE)
+                preds = pad_and_crop(images, model, pad, IMAGE_SIZE)
                 loss  = combined_loss(preds, masks)
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
@@ -173,7 +178,7 @@ def train(args):
                 masks  = masks.to(device).float()
 
                 with torch.amp.autocast("cuda", enabled=(device.type == "cuda")):
-                    preds = pad_and_crop(images, masks, model, pad, IMAGE_SIZE)
+                    preds = pad_and_crop(images, model, pad, IMAGE_SIZE)
                     val_loss += combined_loss(preds, masks).item() * images.size(0)
                 val_dice += dice_score(preds, masks.float()) * images.size(0)
 

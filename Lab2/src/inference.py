@@ -32,13 +32,15 @@ from src.utils import get_val_transform, IMAGE_SIZE
 
 
 def compute_pad_size(input_size, model):
-    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size。
+    若模型輸出已等於輸入（如 ResNet34-UNet），回傳 0。"""
     dummy = torch.zeros(1, 3, input_size, input_size)
     with torch.no_grad():
         out = model.cpu()(dummy)
     out_size = out.shape[2]
-    # 每邊需要 pad 的量
-    pad_per_side = (input_size - out_size + 1) // 2 + 1  # 多 pad 一點確保夠大
+    if out_size >= input_size:
+        return 0
+    pad_per_side = (input_size - out_size + 1) // 2 + 1
     return pad_per_side
 
 
@@ -135,14 +137,14 @@ def run_inference(args):
             images = images.to(device)
 
             def _forward(imgs):
-                # Reflection padding → model → center crop 回原始大小
-                imgs_padded = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
-                logits = model(imgs_padded)
-                # Center crop 回 IMAGE_SIZE
-                oh, ow = logits.shape[2], logits.shape[3]
-                y1 = (oh - IMAGE_SIZE) // 2
-                x1 = (ow - IMAGE_SIZE) // 2
-                logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
+                if pad > 0:
+                    imgs = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
+                logits = model(imgs)
+                if pad > 0:
+                    oh, ow = logits.shape[2], logits.shape[3]
+                    y1 = (oh - IMAGE_SIZE) // 2
+                    x1 = (ow - IMAGE_SIZE) // 2
+                    logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
                 return torch.sigmoid(logits)
 
             if args.tta:

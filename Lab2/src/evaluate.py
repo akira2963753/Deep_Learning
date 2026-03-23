@@ -13,11 +13,14 @@ from src.utils import get_val_transform
 
 
 def compute_pad_size(input_size, model):
-    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size"""
+    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size。
+    若模型輸出已等於輸入（如 ResNet34-UNet），回傳 0。"""
     dummy = torch.zeros(1, 3, input_size, input_size)
     with torch.no_grad():
         out = model.cpu()(dummy)
     out_size = out.shape[2]
+    if out_size >= input_size:
+        return 0
     pad_per_side = (input_size - out_size + 1) // 2 + 1
     return pad_per_side
 
@@ -64,13 +67,15 @@ def evaluate(args):
     with torch.no_grad():
         for images, masks in val_loader:
             images = images.to(device)
-            # Reflection padding → model → center crop 回原始大小
-            images_padded = F.pad(images, [pad, pad, pad, pad], mode='reflect')
-            preds = model(images_padded)
-            oh, ow = preds.shape[2], preds.shape[3]
-            y1 = (oh - IMAGE_SIZE) // 2
-            x1 = (ow - IMAGE_SIZE) // 2
-            preds = preds[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
+            # Reflection padding（UNet）或直接 forward（ResNet34-UNet）
+            if pad > 0:
+                images = F.pad(images, [pad, pad, pad, pad], mode='reflect')
+            preds = model(images)
+            if pad > 0:
+                oh, ow = preds.shape[2], preds.shape[3]
+                y1 = (oh - IMAGE_SIZE) // 2
+                x1 = (ow - IMAGE_SIZE) // 2
+                preds = preds[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
             all_preds.append(preds.cpu())
             all_masks.append(masks.cpu().float())
 

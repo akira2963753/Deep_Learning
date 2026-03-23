@@ -113,7 +113,10 @@ def run(args):
     with torch.no_grad():
         out = model.cpu()(dummy)
     out_size = out.shape[2]
-    pad = (IMAGE_SIZE - out_size + 1) // 2 + 1
+    if out_size >= IMAGE_SIZE:
+        pad = 0
+    else:
+        pad = (IMAGE_SIZE - out_size + 1) // 2 + 1
     model.to(device).eval()
     print(f"載入模型：{args.model}  checkpoint：{args.checkpoint}")
     print(f"Reflection padding：每邊 {pad} 像素")
@@ -134,12 +137,14 @@ def run(args):
             images = images.to(device)
 
             def _forward(imgs):
-                imgs_padded = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
-                logits = model(imgs_padded)
-                oh, ow = logits.shape[2], logits.shape[3]
-                y1 = (oh - IMAGE_SIZE) // 2
-                x1 = (ow - IMAGE_SIZE) // 2
-                logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
+                if pad > 0:
+                    imgs = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
+                logits = model(imgs)
+                if pad > 0:
+                    oh, ow = logits.shape[2], logits.shape[3]
+                    y1 = (oh - IMAGE_SIZE) // 2
+                    x1 = (ow - IMAGE_SIZE) // 2
+                    logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
                 return torch.sigmoid(logits)
 
             if args.tta:
