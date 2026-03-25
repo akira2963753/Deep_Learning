@@ -148,11 +148,28 @@ def run(args):
                 return torch.sigmoid(logits)
 
             if args.tta:
+                # Flip TTA
                 p0 = _forward(images)
                 p1 = torch.flip(_forward(torch.flip(images, [3])), [3])
                 p2 = torch.flip(_forward(torch.flip(images, [2])), [2])
                 p3 = torch.flip(_forward(torch.flip(images, [2, 3])), [2, 3])
-                probs = (p0 + p1 + p2 + p3) / 4.0
+
+                if args.ms_tta:
+                    # Multi-scale TTA: 0.9x, 1.1x
+                    all_preds = [p0, p1, p2, p3]
+                    for scale in [0.9, 1.1]:
+                        sz = int(IMAGE_SIZE * scale)
+                        scaled = F.interpolate(images, size=(sz, sz), mode='bilinear', align_corners=False)
+                        ps = _forward(scaled)
+                        ps = F.interpolate(ps, size=(IMAGE_SIZE, IMAGE_SIZE), mode='bilinear', align_corners=False)
+                        all_preds.append(ps)
+                        # scaled + hflip
+                        ps_f = torch.flip(_forward(torch.flip(scaled, [3])), [3])
+                        ps_f = F.interpolate(ps_f, size=(IMAGE_SIZE, IMAGE_SIZE), mode='bilinear', align_corners=False)
+                        all_preds.append(ps_f)
+                    probs = sum(all_preds) / len(all_preds)
+                else:
+                    probs = (p0 + p1 + p2 + p3) / 4.0
             else:
                 probs = _forward(images)
 
@@ -203,6 +220,8 @@ if __name__ == "__main__":
                         help="固定 threshold（省略則掃描 0.30~0.70）")
     parser.add_argument("--tta",         action="store_true",
                         help="啟用 Test Time Augmentation")
+    parser.add_argument("--ms_tta",      action="store_true",
+                        help="啟用 Multi-Scale TTA（需搭配 --tta）")
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--num_workers", type=int, default=2)
     args = parser.parse_args()
