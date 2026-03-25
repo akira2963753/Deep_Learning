@@ -76,7 +76,6 @@ class JointTransform:
         elastic_p=0.5,
         elastic_alpha=80,
         elastic_sigma=10,
-        gaussian_blur_p=0.0,
     ):
         self.image_size   = image_size
         self.hflip_p      = hflip_p
@@ -85,13 +84,10 @@ class JointTransform:
         self.elastic_p     = elastic_p
         self.elastic_alpha = elastic_alpha
         self.elastic_sigma = elastic_sigma
-        self.gaussian_blur_p = gaussian_blur_p
 
         self.color_jitter = transforms.ColorJitter(
             brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
         ) if color_jitter else None
-
-        self.gaussian_blur = transforms.GaussianBlur(kernel_size=(3, 7), sigma=(0.1, 2.0))
 
         self.to_tensor_img  = transforms.Compose([
             transforms.ToTensor(),
@@ -133,11 +129,7 @@ class JointTransform:
         if self.color_jitter is not None:
             image = self.color_jitter(image)
 
-        # 7. Gaussian Blur（只套用在 image）
-        if random.random() < self.gaussian_blur_p:
-            image = self.gaussian_blur(image)
-
-        # 8. ToTensor + Normalize
+        # 7. ToTensor + Normalize
         image = self.to_tensor_img(image)
         mask  = self.to_tensor_mask(mask)  # shape (1, H, W), dtype uint8
 
@@ -173,7 +165,7 @@ class JointTransform:
         return Image.fromarray(result_img), Image.fromarray(result_mask)
 
 
-def get_train_transform(elastic_p=0.0, gaussian_blur_p=0.0):
+def get_train_transform(elastic_p=0.0):
     """訓練集用（含 augmentation）"""
     return JointTransform(
         image_size=IMAGE_SIZE,
@@ -184,7 +176,6 @@ def get_train_transform(elastic_p=0.0, gaussian_blur_p=0.0):
         elastic_p=elastic_p,
         elastic_alpha=80,
         elastic_sigma=10,
-        gaussian_blur_p=gaussian_blur_p,
     )
 
 
