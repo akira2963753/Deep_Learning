@@ -8,7 +8,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-# 將 src/ 加入 path，方便 import
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset, _get_splits
@@ -18,8 +17,7 @@ import numpy as np
 
 
 def compute_pad_size(input_size, model):
-    """計算需要多少 reflection padding 才能讓模型輸出 >= input_size。
-    若模型輸出已等於輸入（如 ResNet34-UNet），回傳 0。"""
+    """算出 reflection padding 的大小，ResNet34-UNet 不需要所以回傳 0"""
     dummy = torch.zeros(1, 3, input_size, input_size)
     with torch.no_grad():
         out = model(dummy)
@@ -31,8 +29,7 @@ def compute_pad_size(input_size, model):
 
 
 def pad_and_crop(images, model, pad, image_size):
-    """Reflection pad 輸入 → model forward → center crop 回原始大小。
-    pad=0 時直接 forward（適用於 ResNet34-UNet 等 same-conv 模型）。"""
+    """pad -> forward -> crop 回原始大小，pad=0 時直接 forward"""
     if pad > 0:
         images = F.pad(images, [pad, pad, pad, pad], mode='reflect')
     preds = model(images)
@@ -44,14 +41,8 @@ def pad_and_crop(images, model, pad, image_size):
     return preds
 
 
-# ---------------------------------------------------------------------------
-# 支援 JointTransform 的 Dataset wrapper
-# ---------------------------------------------------------------------------
-
 class AugmentedPetDataset(torch.utils.data.Dataset):
-    """
-    訓練集專用：將 JointTransform 同時套用在 image 和 mask 上。
-    """
+    """訓練用，對 image 和 mask 同時做 augmentation"""
 
     def __init__(self, root, split, joint_transform: JointTransform, splits_dir=None):
         from pathlib import Path
@@ -77,19 +68,14 @@ class AugmentedPetDataset(torch.utils.data.Dataset):
         return self.joint_transform(image, mask)
 
 
-# ---------------------------------------------------------------------------
-# 訓練主程式
-# ---------------------------------------------------------------------------
-
 def train(args):
-    # 固定種子，確保可重現
     random.seed(42)
     np.random.seed(42)
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用裝置：{device}")
+    print(f"Device: {device}")
 
     # 建立模型
     if args.model == "unet":
@@ -101,15 +87,13 @@ def train(args):
         model = ResNet34UNet(out_channels=1)
         save_path = os.path.join(args.save_dir, "resnet34_unet_best.pth")
     else:
-        raise ValueError(f"未知模型：{args.model}")
+        raise ValueError(f"Unknown model: {args.model}")
 
-    # 計算 reflection padding 量（在 CPU 上算）
     pad = compute_pad_size(IMAGE_SIZE, model)
-    print(f"Reflection padding：每邊 {pad} 像素")
+    print(f"Reflection padding: {pad} px per side")
     model.to(device)
 
     os.makedirs(args.save_dir, exist_ok=True)
-
     last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
 
     # 資料集
@@ -123,14 +107,12 @@ def train(args):
     val_loader   = DataLoader(val_dataset,   batch_size=args.batch_size, shuffle=False,
                               num_workers=args.num_workers, pin_memory=True)
 
-    print(f"訓練集：{len(train_dataset)} 筆  驗證集：{len(val_dataset)} 筆")
+    print(f"Train: {len(train_dataset)}  Val: {len(val_dataset)}")
 
-    # 優化器 & 排程器
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", patience=5, factor=0.5
     )
-
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
     best_dice  = 0.0
@@ -146,10 +128,10 @@ def train(args):
             scaler.load_state_dict(ckpt["scaler"])
         start_epoch = ckpt["epoch"] + 1
         best_dice   = ckpt["best_dice"]
-        print(f"Resume 從 epoch {start_epoch}，目前最佳 val_dice={best_dice:.4f}")
+        print(f"Resumed from epoch {start_epoch}, best val_dice={best_dice:.4f}")
 
     for epoch in range(start_epoch, args.epochs + 1):
-        # ── 訓練 ──
+        # Train
         model.train()
         train_loss = 0.0
         for images, masks in train_loader:
@@ -169,10 +151,10 @@ def train(args):
 
         train_loss /= len(train_dataset)
 
-        # ── 驗證 ──
+        # Validate
         model.eval()
-        val_loss  = 0.0
-        val_dice  = 0.0
+        val_loss = 0.0
+        val_dice = 0.0
         with torch.no_grad():
             for images, masks in val_loader:
                 images = images.to(device)
@@ -193,15 +175,14 @@ def train(args):
             f"val_dice: {val_dice:.4f}"
         )
 
-        # 儲存最佳模型
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), save_path)
-            print(f"  ✓ 已儲存最佳模型（val_dice={best_dice:.4f}）→ {save_path}")
+            print(f"  Saved best model (val_dice={best_dice:.4f}) -> {save_path}")
 
         scheduler.step(val_dice)
 
-        # 儲存 last checkpoint（供 resume 使用）
+        # last checkpoint
         torch.save({
             "epoch":     epoch,
             "model":     model.state_dict(),
@@ -211,12 +192,12 @@ def train(args):
             "best_dice": best_dice,
         }, last_path)
 
-    print(f"\n訓練結束。最佳 val Dice Score: {best_dice:.4f}")
-    print(f"模型已儲存至：{save_path}")
+    print(f"\nDone. Best val Dice: {best_dice:.4f}")
+    print(f"Model saved: {save_path}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train UNet or ResNet34-UNet")
+    parser = argparse.ArgumentParser()
     parser.add_argument("--model",       type=str, default="unet",
                         choices=["unet", "resnet34_unet"])
     parser.add_argument("--data_root",   type=str, default="dataset/oxford-iiit-pet")
@@ -226,10 +207,8 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay",type=float, default=1e-4)
     parser.add_argument("--save_dir",    type=str, default="saved_models")
     parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--splits_dir",  type=str, default=None,
-                        help="Kaggle 提供的 split 目錄（含 train.txt / val.txt）")
-    parser.add_argument("--resume",      action="store_true",
-                        help="從 last checkpoint 繼續訓練")
+    parser.add_argument("--splits_dir",  type=str, default=None)
+    parser.add_argument("--resume",      action="store_true")
     args = parser.parse_args()
 
     train(args)

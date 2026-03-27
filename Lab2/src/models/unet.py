@@ -7,9 +7,9 @@ class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3),
             nn.ReLU(inplace=True),
         )
 
@@ -17,7 +17,7 @@ class DoubleConv(nn.Module):
         return self.block(x)
 
 class Down(nn.Module):
-    """MaxPool2d(2×2) + DoubleConv"""
+    """MaxPool2d + DoubleConv"""
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -28,7 +28,7 @@ class Down(nn.Module):
         return self.conv(self.pool(x))
 
 class Up(nn.Module):
-    """ConvTranspose2d(2×2) upsample + center crop skip + DoubleConv"""
+    """ConvTranspose2d upsample + center crop skip + DoubleConv"""
 
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -36,7 +36,7 @@ class Up(nn.Module):
         self.conv = DoubleConv(in_channels, out_channels)
 
     def _center_crop(self, skip, target_h, target_w):
-        """將 encoder 的 skip connection 裁切到與 decoder 相同的空間大小"""
+        """要把 Encoder 的 Skip Connection 裁切到跟 Decoder 相同"""
         h, w = skip.shape[2], skip.shape[3]
         x1 = (h - target_h) // 2
         y1 = (w - target_w) // 2
@@ -49,11 +49,6 @@ class Up(nn.Module):
         return self.conv(x)
 
 class UNet(nn.Module):
-    """
-    - Encoder : 3 > 64 > 128 > 256 > 512 > 1024
-    - Decoder : 1024 > 512 > 256 > 128 > 64
-    - Output  : 64 > out_channels
-    """
 
     def __init__(self, in_channels=3, out_channels=1):
         super().__init__()
