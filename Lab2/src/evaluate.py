@@ -20,7 +20,7 @@ def compute_pad_size(input_size, model):
     out_size = out.shape[2]
     if out_size >= input_size:
         return 0
-    return (input_size - out_size + 1) // 2 + 1
+    return (input_size - out_size + 1) // 2
 
 
 def dice_score_with_threshold(pred, target, threshold=0.5, smooth=1e-6):

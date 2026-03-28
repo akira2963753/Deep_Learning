@@ -24,8 +24,7 @@ def compute_pad_size(input_size, model):
     out_size = out.shape[2]
     if out_size >= input_size:
         return 0
-    pad_per_side = (input_size - out_size + 1) // 2 + 1
-    return pad_per_side
+    return (input_size - out_size + 1) // 2
 
 
 def pad_and_crop(images, model, pad, image_size):
@@ -110,7 +109,12 @@ def train(args):
     print(f"Train: {len(train_dataset)}  Val: {len(val_dataset)}")
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+
+    warmup_epochs = 5
+    warmup_scheduler = optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+    )
+    main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", patience=5, factor=0.5
     )
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
@@ -118,12 +122,14 @@ def train(args):
     best_dice  = 0.0
     start_epoch = 1
 
-    # Resume
+    # Resume (warmup_scheduler / main_scheduler 分開存)
     if args.resume and os.path.exists(last_path):
         ckpt = torch.load(last_path, map_location=device)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
-        scheduler.load_state_dict(ckpt["scheduler"])
+        if "warmup_scheduler" in ckpt:
+            warmup_scheduler.load_state_dict(ckpt["warmup_scheduler"])
+        main_scheduler.load_state_dict(ckpt["main_scheduler"])
         if "scaler" in ckpt:
             scaler.load_state_dict(ckpt["scaler"])
         start_epoch = ckpt["epoch"] + 1
@@ -180,16 +186,21 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  Saved best model (val_dice={best_dice:.4f}) -> {save_path}")
 
-        scheduler.step(val_dice)
+        # warmup 前 5 epoch，之後交給 ReduceLROnPlateau
+        if epoch <= warmup_epochs:
+            warmup_scheduler.step()
+        else:
+            main_scheduler.step(val_dice)
 
         # last checkpoint
         torch.save({
-            "epoch":     epoch,
-            "model":     model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "scaler":    scaler.state_dict(),
-            "best_dice": best_dice,
+            "epoch":            epoch,
+            "model":            model.state_dict(),
+            "optimizer":        optimizer.state_dict(),
+            "warmup_scheduler": warmup_scheduler.state_dict(),
+            "main_scheduler":   main_scheduler.state_dict(),
+            "scaler":           scaler.state_dict(),
+            "best_dice":        best_dice,
         }, last_path)
 
     print(f"\nDone. Best val Dice: {best_dice:.4f}")

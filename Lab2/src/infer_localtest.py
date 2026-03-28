@@ -116,7 +116,7 @@ def run(args):
     if out_size >= IMAGE_SIZE:
         pad = 0
     else:
-        pad = (IMAGE_SIZE - out_size + 1) // 2 + 1
+        pad = (IMAGE_SIZE - out_size + 1) // 2
     model.to(device).eval()
     print(f"載入模型：{args.model}  checkpoint：{args.checkpoint}")
     print(f"Reflection padding：每邊 {pad} 像素")

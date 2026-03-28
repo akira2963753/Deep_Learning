@@ -22,7 +22,7 @@ def compute_pad_size(input_size, model):
     out_size = out.shape[2]
     if out_size >= input_size:
         return 0
-    return (input_size - out_size + 1) // 2 + 1
+    return (input_size - out_size + 1) // 2
 
 
 def rle_encode(mask: np.ndarray) -> str:
