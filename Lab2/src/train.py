@@ -136,6 +136,8 @@ def train(args):
         best_dice   = ckpt["best_dice"]
         print(f"Resumed from epoch {start_epoch}, best val_dice={best_dice:.4f}")
 
+    print(f"warmup_epochs: {warmup_epochs}, initial lr: {optimizer.param_groups[0]['lr']:.2e}")
+
     for epoch in range(start_epoch, args.epochs + 1):
         # Train
         model.train()
