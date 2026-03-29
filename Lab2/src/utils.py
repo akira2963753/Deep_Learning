@@ -32,11 +32,33 @@ def dice_score(pred, target, threshold=0.5, smooth=1e-6):
         return ((2.0 * intersection + smooth) / (pred.sum() + target.sum() + smooth)).item()
 
 
+def sobel_loss(pred, target, smooth=1e-6):
+    """邊緣感知 loss，對 sigmoid(pred) 和 target 各算 Sobel gradient 後比較"""
+    pred_sig = torch.sigmoid(pred)
+
+    sobel_x = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]],
+                            dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
+    sobel_y = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]],
+                            dtype=pred.dtype, device=pred.device).view(1, 1, 3, 3)
+
+    pred_gx = F.conv2d(pred_sig, sobel_x, padding=1)
+    pred_gy = F.conv2d(pred_sig, sobel_y, padding=1)
+    pred_edge = torch.sqrt(pred_gx ** 2 + pred_gy ** 2 + smooth)
+
+    tgt = target.float().unsqueeze(1) if target.dim() == 3 else target.float()
+    tgt_gx = F.conv2d(tgt, sobel_x, padding=1)
+    tgt_gy = F.conv2d(tgt, sobel_y, padding=1)
+    tgt_edge = torch.sqrt(tgt_gx ** 2 + tgt_gy ** 2 + smooth)
+
+    return F.l1_loss(pred_edge, tgt_edge)
+
+
 def combined_loss(pred, target):
-    """0.5 * BCE + 0.5 * Dice"""
+    """0.4 * BCE + 0.4 * Dice + 0.2 * Sobel"""
     bce = F.binary_cross_entropy_with_logits(pred, target.float())
     d   = dice_loss(pred, target)
-    return 0.5 * bce + 0.5 * d
+    s   = sobel_loss(pred, target)
+    return 0.4 * bce + 0.4 * d + 0.2 * s
 
 
 class JointTransform:
