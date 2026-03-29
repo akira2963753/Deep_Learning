@@ -110,9 +110,9 @@ def train(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    warmup_epochs = 5
+    warmup_epochs = 5 if args.model == "unet" else 0
     warmup_scheduler = optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=max(warmup_epochs, 1)
     )
     main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", patience=5, factor=0.5
@@ -186,8 +186,7 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  Saved best model (val_dice={best_dice:.4f}) -> {save_path}")
 
-        # warmup 前 5 epoch，之後交給 ReduceLROnPlateau
-        if epoch <= warmup_epochs:
+        if warmup_epochs > 0 and epoch <= warmup_epochs:
             warmup_scheduler.step()
         else:
             main_scheduler.step(val_dice)

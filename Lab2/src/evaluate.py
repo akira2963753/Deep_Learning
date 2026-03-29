@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset, IMAGE_SIZE
-from src.utils import get_val_transform
+from src.utils import get_val_transform, dice_score
 
 
 def compute_pad_size(input_size, model):
@@ -21,15 +21,6 @@ def compute_pad_size(input_size, model):
     if out_size >= input_size:
         return 0
     return (input_size - out_size + 1) // 2
-
-
-def dice_score_with_threshold(pred, target, threshold=0.5, smooth=1e-6):
-    pred = torch.sigmoid(pred)
-    pred = (pred > threshold).float()
-    pred   = pred.contiguous().view(-1)
-    target = target.contiguous().view(-1).float()
-    intersection = (pred * target).sum()
-    return ((2.0 * intersection + smooth) / (pred.sum() + target.sum() + smooth)).item()
 
 
 def evaluate(args):
@@ -83,14 +74,14 @@ def evaluate(args):
         print("-" * 28)
         best_thresh, best_dice = 0.5, 0.0
         for t in [round(x * 0.05, 2) for x in range(6, 13)]:
-            score = dice_score_with_threshold(all_preds, all_masks, threshold=t)
+            score = dice_score(all_preds, all_masks, threshold=t)
             marker = " <- best" if score > best_dice else ""
             if score > best_dice:
                 best_dice, best_thresh = score, t
             print(f"{t:>12.2f} | {score:>12.4f}{marker}")
         print(f"\nBest threshold: {best_thresh}  Dice: {best_dice:.4f}")
     else:
-        score = dice_score_with_threshold(all_preds, all_masks, threshold=args.threshold)
+        score = dice_score(all_preds, all_masks, threshold=args.threshold)
         print(f"\nVal Dice (threshold={args.threshold}): {score:.4f}")
 
 
