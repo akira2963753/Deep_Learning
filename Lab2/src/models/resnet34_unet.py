@@ -19,6 +19,49 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.block(x)
 
+class ChannelAttention(nn.Module):
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+        self.mlp = nn.Sequential(
+            nn.Conv2d(channels, channels // reduction, kernel_size=1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels // reduction, channels, kernel_size=1, bias=False),
+        )
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.mlp(self.avg_pool(x))
+        max_out = self.mlp(self.max_pool(x))
+        return self.sigmoid(avg_out + max_out)
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size,
+                              padding=kernel_size // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        return self.sigmoid(self.conv(torch.cat([avg_out, max_out], dim=1)))
+
+
+class CBAM(nn.Module):
+    def __init__(self, channels, reduction=16, kernel_size=7):
+        super().__init__()
+        self.ca = ChannelAttention(channels, reduction)
+        self.sa = SpatialAttention(kernel_size)
+
+    def forward(self, x):
+        x = x * self.ca(x)
+        x = x * self.sa(x)
+        return x
+
+
 class BasicBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride=1):
@@ -55,13 +98,14 @@ def _make_layer(in_channels, out_channels, num_blocks, stride=1):
 
 
 class DecoderBlock(nn.Module):
-    """ConvTranspose2d upsample + concat skip + DoubleConv"""
+    """ConvTranspose2d upsample + concat skip + DoubleConv + CBAM"""
 
     def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
-        self.up   = nn.ConvTranspose2d(in_channels, in_channels // 2,
+        self.up   = nn.ConvTranspose2d(in_channels, in_channels,
                                        kernel_size=2, stride=2)
-        self.conv = DoubleConv(in_channels // 2 + skip_channels, out_channels)
+        self.conv = DoubleConv(in_channels + skip_channels, out_channels)
+        self.cbam = CBAM(out_channels)
 
     def forward(self, x, skip):
         x = self.up(x)
@@ -70,7 +114,7 @@ class DecoderBlock(nn.Module):
             x = F.interpolate(x, size=skip.shape[2:],
                               mode="bilinear", align_corners=False)
         x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
+        return self.cbam(self.conv(x))
 
 class ResNet34UNet(nn.Module):
 
