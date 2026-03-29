@@ -152,7 +152,12 @@ def run(args):
                 p1 = torch.flip(_forward(torch.flip(images, [3])), [3])
                 p2 = torch.flip(_forward(torch.flip(images, [2])), [2])
                 p3 = torch.flip(_forward(torch.flip(images, [2, 3])), [2, 3])
-                probs = (p0 + p1 + p2 + p3) / 4.0
+                # 90° 和 270° 旋轉
+                p4 = torch.rot90(_forward(torch.rot90(images, 1, [2, 3])), -1, [2, 3])
+                p5 = torch.flip(torch.rot90(_forward(torch.rot90(torch.flip(images, [3]), 1, [2, 3])), -1, [2, 3]), [3])
+                p6 = torch.rot90(_forward(torch.rot90(images, 3, [2, 3])), -3, [2, 3])
+                p7 = torch.flip(torch.rot90(_forward(torch.rot90(torch.flip(images, [3]), 3, [2, 3])), -3, [2, 3]), [3])
+                probs = (p0 + p1 + p2 + p3 + p4 + p5 + p6 + p7) / 8.0
             else:
                 probs = _forward(images)
 

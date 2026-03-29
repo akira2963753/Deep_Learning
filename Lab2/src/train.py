@@ -110,9 +110,10 @@ def train(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    warmup_epochs = 5
+    # warmup 只用在 UNet（沒有 BN，訓練初期不穩定）
+    warmup_epochs = 5 if args.model == "unet" else 0
     warmup_scheduler = optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=max(warmup_epochs, 1)
     )
     main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", patience=5, factor=0.5
