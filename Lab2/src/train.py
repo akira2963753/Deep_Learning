@@ -112,8 +112,8 @@ def train(args):
 
     warmup_epochs = 5 if args.model == "unet" else 0
     warmup_scheduler = optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=0.1, end_factor=1.0, total_iters=max(warmup_epochs, 1)
-    )
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+    ) if warmup_epochs > 0 else None
     main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", patience=5, factor=0.5
     )
@@ -127,7 +127,7 @@ def train(args):
         ckpt = torch.load(last_path, map_location=device)
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optimizer"])
-        if "warmup_scheduler" in ckpt:
+        if warmup_scheduler is not None and "warmup_scheduler" in ckpt:
             warmup_scheduler.load_state_dict(ckpt["warmup_scheduler"])
         main_scheduler.load_state_dict(ckpt["main_scheduler"])
         if "scaler" in ckpt:
@@ -188,21 +188,23 @@ def train(args):
             torch.save(model.state_dict(), save_path)
             print(f"  Saved best model (val_dice={best_dice:.4f}) -> {save_path}")
 
-        if warmup_epochs > 0 and epoch <= warmup_epochs:
+        if warmup_scheduler is not None and epoch <= warmup_epochs:
             warmup_scheduler.step()
         else:
             main_scheduler.step(val_dice)
 
         # last checkpoint
-        torch.save({
-            "epoch":            epoch,
-            "model":            model.state_dict(),
-            "optimizer":        optimizer.state_dict(),
-            "warmup_scheduler": warmup_scheduler.state_dict(),
-            "main_scheduler":   main_scheduler.state_dict(),
-            "scaler":           scaler.state_dict(),
-            "best_dice":        best_dice,
-        }, last_path)
+        ckpt_dict = {
+            "epoch":          epoch,
+            "model":          model.state_dict(),
+            "optimizer":      optimizer.state_dict(),
+            "main_scheduler": main_scheduler.state_dict(),
+            "scaler":         scaler.state_dict(),
+            "best_dice":      best_dice,
+        }
+        if warmup_scheduler is not None:
+            ckpt_dict["warmup_scheduler"] = warmup_scheduler.state_dict()
+        torch.save(ckpt_dict, last_path)
 
     print(f"\nDone. Best val Dice: {best_dice:.4f}")
     print(f"Model saved: {save_path}")
