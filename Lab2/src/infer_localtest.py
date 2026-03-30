@@ -30,25 +30,6 @@ import torch.nn.functional as F
 from pathlib import Path
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
-from scipy.ndimage import label, binary_closing
-
-
-def postprocess(mask: np.ndarray, closing_kernel: int = 5) -> np.ndarray:
-    """
-    1. Morphological Closing：填補體內破洞
-    2. LCC：保留最大連通組件，清除背景雜訊
-    mask: (H, W) uint8, 值為 0/1
-    """
-    struct = np.ones((closing_kernel, closing_kernel), dtype=bool)
-    mask = binary_closing(mask.astype(bool), structure=struct).astype(np.uint8)
-
-    labeled, num_features = label(mask)
-    if num_features == 0:
-        return mask
-    sizes = np.bincount(labeled.ravel())
-    sizes[0] = 0
-    largest = sizes.argmax()
-    return (labeled == largest).astype(np.uint8)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -191,18 +172,7 @@ def run(args):
     best_dice, best_thr = 0.0, 0.5
 
     for thr in thresholds:
-        preds_np = (all_probs > thr).numpy()  # (N, 1, H, W) bool
-        if args.postprocess:
-            processed = []
-            for i in range(len(preds_np)):
-                m = postprocess(preds_np[i, 0].astype(np.uint8),
-                                closing_kernel=args.closing_kernel)
-                processed.append(m)
-            preds_binary = torch.from_numpy(
-                np.stack(processed)[:, None, :, :]
-            ).float()
-        else:
-            preds_binary = torch.from_numpy(preds_np).float()
+        preds_binary = (all_probs > thr).float()
         total_dice   = 0.0
         for i in range(len(all_probs)):
             total_dice += compute_dice(preds_binary[i:i+1], all_masks[i:i+1])
@@ -229,16 +199,12 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint",  type=str, required=True)
     parser.add_argument("--test_list",   type=str, required=True,
                         help="test.txt 路徑（每行一個圖片名稱）")
-    parser.add_argument("--threshold",       type=float, default=None,
+    parser.add_argument("--threshold",   type=float, default=None,
                         help="固定 threshold（省略則掃描 0.30~0.70）")
-    parser.add_argument("--tta",             action="store_true",
+    parser.add_argument("--tta",         action="store_true",
                         help="啟用 Test Time Augmentation")
-    parser.add_argument("--batch_size",      type=int, default=16)
-    parser.add_argument("--num_workers",     type=int, default=2)
-    parser.add_argument("--postprocess",     action="store_true",
-                        help="啟用後處理（LCC + Morphological Closing）")
-    parser.add_argument("--closing_kernel",  type=int, default=5,
-                        help="Morphological Closing kernel size")
+    parser.add_argument("--batch_size",  type=int, default=16)
+    parser.add_argument("--num_workers", type=int, default=2)
     args = parser.parse_args()
 
     run(args)

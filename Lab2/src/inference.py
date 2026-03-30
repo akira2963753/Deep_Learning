@@ -7,25 +7,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from scipy.ndimage import label, binary_closing
-
-
-def postprocess(mask: np.ndarray, closing_kernel: int = 5) -> np.ndarray:
-    """
-    1. Morphological Closing：填補體內破洞
-    2. LCC：保留最大連通組件，清除背景雜訊
-    mask: (H, W) uint8, 值為 0/1
-    """
-    struct = np.ones((closing_kernel, closing_kernel), dtype=bool)
-    mask = binary_closing(mask.astype(bool), structure=struct).astype(np.uint8)
-
-    labeled, num_features = label(mask)
-    if num_features == 0:
-        return mask
-    sizes = np.bincount(labeled.ravel())
-    sizes[0] = 0
-    largest = sizes.argmax()
-    return (labeled == largest).astype(np.uint8)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -141,8 +122,6 @@ def run_inference(args):
 
             for i, (pred, name) in enumerate(zip(preds, names)):
                 mask_2d = pred[0].astype(np.uint8)
-                if args.postprocess:
-                    mask_2d = postprocess(mask_2d, closing_kernel=args.closing_kernel)
 
                 # resize 回原始大小
                 if orig_sizes is not None:
@@ -174,11 +153,9 @@ if __name__ == "__main__":
     parser.add_argument("--output",      type=str, default="unet_pred.csv")
     parser.add_argument("--batch_size",  type=int, default=16)
     parser.add_argument("--threshold",   type=float, default=0.5)
-    parser.add_argument("--tta",             action="store_true")
-    parser.add_argument("--num_workers",     type=int, default=2)
-    parser.add_argument("--test_list",       type=str, default=None)
-    parser.add_argument("--postprocess",     action="store_true")
-    parser.add_argument("--closing_kernel",  type=int, default=5)
+    parser.add_argument("--tta",         action="store_true")
+    parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--test_list",   type=str, default=None)
     args = parser.parse_args()
 
     run_inference(args)
