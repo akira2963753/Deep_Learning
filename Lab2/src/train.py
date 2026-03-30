@@ -123,8 +123,8 @@ def train(args):
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
-        main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=args.epochs - warmup_epochs, eta_min=1e-6
+        main_scheduler = optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=[50, 100, 125, 150, 175, 200], gamma=0.5
         )
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
