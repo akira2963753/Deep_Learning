@@ -96,7 +96,7 @@ def train(args):
     last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
 
     # 資料集
-    elastic_p = 0.4 if args.model == "resnet34_unet" else 0.0
+    elastic_p = 0.5 if args.model == "resnet34_unet" else 0.0
     train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(elastic_p=elastic_p), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
     val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf, splits_dir=args.splits_dir)
