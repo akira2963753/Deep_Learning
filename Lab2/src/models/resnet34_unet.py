@@ -2,23 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class DoubleConv(nn.Module):
-    """ Double (Conv + BN + ReLU) """
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-        )
-
-    def forward(self, x):
-        return self.block(x)
-
 class ChannelAttention(nn.Module):
     def __init__(self, channels, reduction=16):
         super().__init__()
@@ -103,7 +86,11 @@ class Bottleneck(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.conv = DoubleConv(768, 32)
+        self.conv = nn.Sequential(
+            nn.Conv2d(768, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        )
 
     def forward(self, f3, f4):
         # f3: 24², f4: 12² → 將 f3 縮到 f4 的尺寸再 concat，輸出在 12²
