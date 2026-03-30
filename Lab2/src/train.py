@@ -96,7 +96,7 @@ def train(args):
     last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
 
     # 資料集
-    elastic_p = 0.4 if args.model == "resnet34_unet" else 0.0
+    elastic_p = 0.3 if args.model == "resnet34_unet" else 0.0
     train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(elastic_p=elastic_p), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
     val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf, splits_dir=args.splits_dir)
@@ -123,8 +123,8 @@ def train(args):
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
-        main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=args.epochs - warmup_epochs, eta_min=1e-6
+        main_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, T_0=10, T_mult=2, eta_min=1e-6
         )
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
