@@ -119,7 +119,7 @@ def train(args):
             optimizer, mode="max", patience=5, factor=0.5
         )
     else:  # resnet34_unet
-        warmup_epochs = 5
+        warmup_epochs = 8
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
