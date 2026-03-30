@@ -147,16 +147,12 @@ class ResNet34UNet(nn.Module):
         # Bottleneck + Decoder
         self.bottleneck = Bottleneck()
 
-        self.dec1 = DecoderBlock(32, 512, 32)
+        self.dec1 = DecoderBlock(32, 256, 32)  # 論文標示 32+512 但 skip 接 layer3(256ch) 更合理
         self.dec2 = DecoderBlock(32, 128, 32)
         self.dec3 = DecoderBlock(32, 64,  32)
 
         # Output
-        self.pre_out = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-        )
+        self.pre_out  = nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False)
         self.out_conv = nn.Conv2d(32, out_channels, kernel_size=1)
 
     def forward(self, x):
@@ -173,7 +169,7 @@ class ResNet34UNet(nn.Module):
         x = self.bottleneck(f3, skip4)  # 24², 32ch
 
         # Decoder
-        x = self.dec1(x, skip4)  # 24², 32ch
+        x = self.dec1(x, f3)    # 24², 32ch  (skip: layer3 256ch)
         x = self.dec2(x, skip2)  # 48², 32ch
         x = self.dec3(x, skip1)  # 96², 32ch
 
