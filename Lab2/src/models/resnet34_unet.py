@@ -97,6 +97,18 @@ def _make_layer(in_channels, out_channels, num_blocks, stride=1):
     return nn.Sequential(*layers)
 
 
+class Bottleneck(nn.Module):
+    """concat layer3(256ch) + layer4(512ch) → 32ch"""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = DoubleConv(768, 32)
+
+    def forward(self, f3, f4):
+        f4_up = F.interpolate(f4, size=f3.shape[2:], mode="bilinear", align_corners=False)
+        return self.conv(torch.cat([f3, f4_up], dim=1))
+
+
 class DecoderBlock(nn.Module):
     """ConvTranspose2d upsample + concat skip + DoubleConv + CBAM"""
 
@@ -105,7 +117,7 @@ class DecoderBlock(nn.Module):
         self.up   = nn.ConvTranspose2d(in_channels, in_channels,
                                        kernel_size=2, stride=2)
         self.conv = DoubleConv(in_channels + skip_channels, out_channels)
-        self.cbam = CBAM(out_channels)
+        self.cbam = CBAM(out_channels, reduction=max(1, out_channels // 2))
 
     def forward(self, x, skip):
         x = self.up(x)
@@ -132,31 +144,40 @@ class ResNet34UNet(nn.Module):
         self.layer3  = _make_layer(128, 256, num_blocks=6, stride=2)
         self.layer4  = _make_layer(256, 512, num_blocks=3, stride=2)
 
-        # Decoder
-        self.dec1 = DecoderBlock(512, 256, 256)
-        self.dec2 = DecoderBlock(256, 128, 128)
-        self.dec3 = DecoderBlock(128, 64,  64)
-        self.dec4 = DecoderBlock(64,  64,  32)
+        # Bottleneck + Decoder
+        self.bottleneck = Bottleneck()
+
+        self.dec1 = DecoderBlock(32, 512, 32)
+        self.dec2 = DecoderBlock(32, 128, 32)
+        self.dec3 = DecoderBlock(32, 64,  32)
 
         # Output
+        self.pre_out = nn.Sequential(
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+        )
         self.out_conv = nn.Conv2d(32, out_channels, kernel_size=1)
 
     def forward(self, x):
         # Encoder
-        s4 = self.relu(self.bn1(self.conv1(x)))
-        x  = self.maxpool(s4)
+        x     = self.relu(self.bn1(self.conv1(x)))  # 192², 64ch
+        x     = self.maxpool(x)                      # 96²,  64ch
 
-        s3 = self.layer1(x)
-        s2 = self.layer2(s3)
-        s1 = self.layer3(s2)
-        x  = self.layer4(s1)
+        skip1 = self.layer1(x)      # 96²,  64ch  → dec3 skip
+        skip2 = self.layer2(skip1)  # 48²,  128ch → dec2 skip
+        f3    = self.layer3(skip2)  # 24²,  256ch → bottleneck
+        skip4 = self.layer4(f3)    # 12²,  512ch → dec1 skip
+
+        # Bottleneck
+        x = self.bottleneck(f3, skip4)  # 24², 32ch
 
         # Decoder
-        x = self.dec1(x, s1)
-        x = self.dec2(x, s2)
-        x = self.dec3(x, s3)
-        x = self.dec4(x, s4)
+        x = self.dec1(x, skip4)  # 24², 32ch
+        x = self.dec2(x, skip2)  # 48², 32ch
+        x = self.dec3(x, skip1)  # 96², 32ch
 
-        # upsample 回原始大小
-        x = F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+        # upsample 回原始大小（96² → 384²，4x）
+        x = F.interpolate(x, scale_factor=4, mode="bilinear", align_corners=False)
+        x = self.pre_out(x)
         return self.out_conv(x)
