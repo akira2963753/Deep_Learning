@@ -46,7 +46,7 @@ class SpatialAttention(nn.Module):
 
     def forward(self, x):
         avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        max_out = torch.max(x, dim=1, keepdim=True)[0]
         return self.sigmoid(self.conv(torch.cat([avg_out, max_out], dim=1)))
 
 
@@ -75,13 +75,14 @@ class BasicBlock(nn.Module):
         self.relu  = nn.ReLU(inplace=True)
 
         # shortcut: stride!=1 或 channel 不同時用 1x1 conv 對齊
-        self.shortcut = nn.Sequential()
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1,
                           stride=stride, bias=False),
                 nn.BatchNorm2d(out_channels),
             )
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x):
         out = self.relu(self.bn1(self.conv1(x)))
@@ -98,25 +99,29 @@ def _make_layer(in_channels, out_channels, num_blocks, stride=1):
 
 
 class Bottleneck(nn.Module):
-    """concat layer3(256ch) + layer4(512ch) → 32ch"""
+    """concat layer3(256ch↓12²) + layer4(512ch@12²) → 32ch@12²"""
 
     def __init__(self):
         super().__init__()
         self.conv = DoubleConv(768, 32)
 
     def forward(self, f3, f4):
-        f4_up = F.interpolate(f4, size=f3.shape[2:], mode="bilinear", align_corners=False)
-        return self.conv(torch.cat([f3, f4_up], dim=1))
+        # f3: 24², f4: 12² → 將 f3 縮到 f4 的尺寸再 concat，輸出在 12²
+        f3_down = F.interpolate(f3, size=f4.shape[2:], mode="bilinear", align_corners=False)
+        return self.conv(torch.cat([f3_down, f4], dim=1))
 
 
 class DecoderBlock(nn.Module):
-    """ConvTranspose2d upsample + concat skip + DoubleConv + CBAM"""
+    """Upsample + concat skip + Conv+BN+ReLU + CBAM"""
 
     def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
-        self.up   = nn.ConvTranspose2d(in_channels, in_channels,
-                                       kernel_size=2, stride=2)
-        self.conv = DoubleConv(in_channels + skip_channels, out_channels)
+        self.up   = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels + skip_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
         self.cbam = CBAM(out_channels, reduction=max(1, out_channels // 2))
 
     def forward(self, x, skip):
@@ -127,6 +132,24 @@ class DecoderBlock(nn.Module):
                               mode="bilinear", align_corners=False)
         x = torch.cat([x, skip], dim=1)
         return self.cbam(self.conv(x))
+
+
+class UpsampleBlock(nn.Module):
+    """Upsample + Conv+BN+ReLU + CBAM（無 skip concat）"""
+
+    def __init__(self, channels):
+        super().__init__()
+        self.up   = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(channels),
+            nn.ReLU(inplace=True),
+        )
+        self.cbam = CBAM(channels, reduction=max(1, channels // 2))
+
+    def forward(self, x):
+        return self.cbam(self.conv(self.up(x)))
+
 
 class ResNet34UNet(nn.Module):
 
@@ -147,12 +170,13 @@ class ResNet34UNet(nn.Module):
         # Bottleneck + Decoder
         self.bottleneck = Bottleneck()
 
-        self.dec1 = DecoderBlock(32, 256, 32)  # 論文標示 32+512 但 skip 接 layer3(256ch) 更合理
-        self.dec2 = DecoderBlock(32, 128, 32)
-        self.dec3 = DecoderBlock(32, 64,  32)
+        self.dec1 = DecoderBlock(32, 256, 32)  # skip=f3    (256ch, 24²)
+        self.dec2 = DecoderBlock(32, 128, 32)  # skip=skip2 (128ch, 48²)
+        self.dec3 = DecoderBlock(32, 64,  32)  # skip=skip1 (64ch,  96²)
+        self.dec4 = UpsampleBlock(32)           # 96²→192², no skip
+        self.dec5 = UpsampleBlock(32)           # 192²→384², no skip
 
         # Output
-        self.pre_out  = nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False)
         self.out_conv = nn.Conv2d(32, out_channels, kernel_size=1)
 
     def forward(self, x):
@@ -162,18 +186,17 @@ class ResNet34UNet(nn.Module):
 
         skip1 = self.layer1(x)      # 96²,  64ch  → dec3 skip
         skip2 = self.layer2(skip1)  # 48²,  128ch → dec2 skip
-        f3    = self.layer3(skip2)  # 24²,  256ch → bottleneck
-        skip4 = self.layer4(f3)    # 12²,  512ch → dec1 skip
+        f3    = self.layer3(skip2)  # 24²,  256ch → dec1 skip
+        f4    = self.layer4(f3)     # 12²,  512ch → bottleneck
 
-        # Bottleneck
-        x = self.bottleneck(f3, skip4)  # 24², 32ch
+        # Bottleneck（輸出 12²）
+        x = self.bottleneck(f3, f4)  # 12², 32ch
 
         # Decoder
-        x = self.dec1(x, f3)    # 24², 32ch  (skip: layer3 256ch)
-        x = self.dec2(x, skip2)  # 48², 32ch
-        x = self.dec3(x, skip1)  # 96², 32ch
+        x = self.dec1(x, f3)    # 12²→24²,  skip=f3    (256ch)
+        x = self.dec2(x, skip2)  # 24²→48²,  skip=skip2 (128ch)
+        x = self.dec3(x, skip1)  # 48²→96²,  skip=skip1 (64ch)
+        x = self.dec4(x)          # 96²→192², no skip
+        x = self.dec5(x)          # 192²→384², no skip
 
-        # upsample 回原始大小（96² → 384²，4x）
-        x = F.interpolate(x, scale_factor=4, mode="bilinear", align_corners=False)
-        x = self.pre_out(x)
-        return self.out_conv(x)
+        return self.out_conv(x)   # 384², 1ch
