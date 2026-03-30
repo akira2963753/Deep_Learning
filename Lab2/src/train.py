@@ -119,12 +119,12 @@ def train(args):
             optimizer, mode="max", patience=5, factor=0.5
         )
     else:  # resnet34_unet
-        warmup_epochs = 8
+        warmup_epochs = 5
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
         main_scheduler = optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[50, 100, 125, 150, 175, 200], gamma=0.5
+            optimizer, milestones=[50, 100, 125, 150, 175, 200, 215, 230], gamma=0.5
         )
     scaler = torch.amp.GradScaler("cuda", enabled=(device.type == "cuda"))
 
