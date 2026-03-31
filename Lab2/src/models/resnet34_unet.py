@@ -19,7 +19,6 @@ class ChannelAttention(nn.Module):
         max_out = self.mlp(self.max_pool(x))
         return self.sigmoid(avg_out + max_out)
 
-
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super().__init__()
@@ -32,7 +31,6 @@ class SpatialAttention(nn.Module):
         max_out = torch.max(x, dim=1, keepdim=True)[0]
         return self.sigmoid(self.conv(torch.cat([avg_out, max_out], dim=1)))
 
-
 class CBAM(nn.Module):
     def __init__(self, channels, reduction=16, kernel_size=7):
         super().__init__()
@@ -43,7 +41,6 @@ class CBAM(nn.Module):
         x = x * self.ca(x)
         x = x * self.sa(x)
         return x
-
 
 class BasicBlock(nn.Module):
 
@@ -73,13 +70,11 @@ class BasicBlock(nn.Module):
         out += self.shortcut(x)
         return self.relu(out)
 
-
 def _make_layer(in_channels, out_channels, num_blocks, stride=1):
     layers = [BasicBlock(in_channels, out_channels, stride=stride)]
     for _ in range(1, num_blocks):
         layers.append(BasicBlock(out_channels, out_channels, stride=1))
     return nn.Sequential(*layers)
-
 
 class Bottleneck(nn.Module):
     """concat layer3(256ch↓12²) + layer4(512ch@12²) → 32ch@12²"""
@@ -92,14 +87,16 @@ class Bottleneck(nn.Module):
             nn.ReLU(inplace=True),
         )
 
-    def forward(self, f3, f4):
-        # f3: 24², f4: 12² → 將 f3 縮到 f4 的尺寸再 concat，輸出在 12²
+    def forward(self, f3, f4): 
+        # f3: 24 x 24, f4: 12 x 12 
+        # 將 f3 縮到 f4 的尺寸再 concat，輸出在 12 x 12
         f3_down = F.interpolate(f3, size=f4.shape[2:], mode="bilinear", align_corners=False)
         return self.conv(torch.cat([f3_down, f4], dim=1))
 
-
 class DecoderBlock(nn.Module):
-    """Upsample + concat skip + Conv+BN+ReLU + CBAM"""
+    """ Decoder Block 
+    Include Upsample + concat skip + (Conv+BN+ReLU) CBAM
+    """
 
     def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
@@ -113,16 +110,16 @@ class DecoderBlock(nn.Module):
 
     def forward(self, x, skip):
         x = self.up(x)
-        # 處理尺寸不整除
-        if x.shape[2:] != skip.shape[2:]:
+        if x.shape[2:] != skip.shape[2:]: # 處理尺寸不整除
             x = F.interpolate(x, size=skip.shape[2:],
                               mode="bilinear", align_corners=False)
         x = torch.cat([x, skip], dim=1)
         return self.cbam(self.conv(x))
 
-
 class UpsampleBlock(nn.Module):
-    """Upsample + Conv+BN+ReLU + CBAM（無 skip concat）"""
+    """ UpsampleBlock 主要是用在後兩個 Decoder Block 沒有 skip concat
+    Include Upsample + Conv+BN+ReLU + CBAM
+    """
 
     def __init__(self, channels):
         super().__init__()
@@ -157,33 +154,32 @@ class ResNet34UNet(nn.Module):
         # Bottleneck + Decoder
         self.bottleneck = Bottleneck()
 
-        self.dec1 = DecoderBlock(32, 256, 32)  # skip=f3    (256ch, 24²)
-        self.dec2 = DecoderBlock(32, 128, 32)  # skip=skip2 (128ch, 48²)
-        self.dec3 = DecoderBlock(32, 64,  32)  # skip=skip1 (64ch,  96²)
-        self.dec4 = UpsampleBlock(32)           # 96²→192², no skip
-        self.dec5 = UpsampleBlock(32)           # 192²→384², no skip
+        self.dec1 = DecoderBlock(32, 256, 32)   # skip=f3    (256ch)
+        self.dec2 = DecoderBlock(32, 128, 32)   # skip=skip2 (128ch)
+        self.dec3 = DecoderBlock(32, 64,  32)   # skip=skip1 (64ch)
+        self.dec4 = UpsampleBlock(32)           # no skip
+        self.dec5 = UpsampleBlock(32)           # no skip
 
         # Output
         self.out_conv = nn.Conv2d(32, out_channels, kernel_size=1)
 
     def forward(self, x):
         # Encoder
-        x     = self.relu(self.bn1(self.conv1(x)))  # 192², 64ch
-        x     = self.maxpool(x)                      # 96²,  64ch
+        x     = self.relu(self.bn1(self.conv1(x)))  # 64ch
+        x     = self.maxpool(x)                     # 64ch
+        skip1 = self.layer1(x)                      # 64ch  → dec3 skip
+        skip2 = self.layer2(skip1)                  # 128ch → dec2 skip
+        f3    = self.layer3(skip2)                  # 256ch → dec1 skip
+        f4    = self.layer4(f3)                     # 512ch → bottleneck
 
-        skip1 = self.layer1(x)      # 96²,  64ch  → dec3 skip
-        skip2 = self.layer2(skip1)  # 48²,  128ch → dec2 skip
-        f3    = self.layer3(skip2)  # 24²,  256ch → dec1 skip
-        f4    = self.layer4(f3)     # 12²,  512ch → bottleneck
-
-        # Bottleneck（輸出 12²）
-        x = self.bottleneck(f3, f4)  # 12², 32ch
+        # Bottleneck
+        x = self.bottleneck(f3, f4)  # 32ch
 
         # Decoder
-        x = self.dec1(x, f3)    # 12²→24²,  skip=f3    (256ch)
-        x = self.dec2(x, skip2)  # 24²→48²,  skip=skip2 (128ch)
-        x = self.dec3(x, skip1)  # 48²→96²,  skip=skip1 (64ch)
-        x = self.dec4(x)          # 96²→192², no skip
-        x = self.dec5(x)          # 192²→384², no skip
+        x = self.dec1(x, f3)        # skip=f3    (256ch)
+        x = self.dec2(x, skip2)     # skip=skip2 (128ch)
+        x = self.dec3(x, skip1)     # skip=skip1 (64ch)
+        x = self.dec4(x)            # no skip
+        x = self.dec5(x)            # no skip
 
-        return self.out_conv(x)   # 384², 1ch
+        return self.out_conv(x)     # 1ch
