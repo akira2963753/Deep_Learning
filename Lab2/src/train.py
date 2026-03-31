@@ -96,7 +96,7 @@ def train(args):
     last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
 
     # 資料集
-    elastic_p = 0.4 if args.model == "resnet34_unet" else 0.2
+    elastic_p = 0.4 if args.model == "resnet34_unet" else 0.0
     train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(elastic_p=elastic_p), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
     val_dataset = OxfordPetDataset(args.data_root, "val", transform=img_tf, target_transform=mask_tf, splits_dir=args.splits_dir)
@@ -111,12 +111,12 @@ def train(args):
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
     if args.model == "unet":
-        warmup_epochs = 15
+        warmup_epochs = 5
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
         )
-        main_scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=args.epochs - warmup_epochs, eta_min=1e-6
+        main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="max", patience=5, factor=0.5
         )
     else:  # resnet34_unet
         warmup_epochs = 5
@@ -199,6 +199,8 @@ def train(args):
 
         if epoch <= warmup_epochs:
             warmup_scheduler.step()
+        elif args.model == "unet":
+            main_scheduler.step(val_dice)
         else:
             main_scheduler.step()
 

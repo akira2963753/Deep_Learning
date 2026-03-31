@@ -4,20 +4,20 @@ pip install -r requirements.txt
 ## Training
 
 # UNet
-python src/train.py --model unet --data_root dataset/oxford-iiit-pet --splits_dir <splits_dir> --epochs 50 --batch_size 16
+python src/train.py --model unet --data_root dataset/oxford-iiit-pet --splits_dir <splits_dir> --epochs 130 --batch_size 16
 
 # ResNet34-UNet
-python src/train.py --model resnet34_unet --data_root dataset/oxford-iiit-pet --splits_dir <splits_dir> --epochs 130 --batch_size 16
+python src/train.py --model resnet34_unet --data_root dataset/oxford-iiit-pet --splits_dir <splits_dir> --epochs 210 --batch_size 16
 
 Trained model weights will be saved to saved_models/unet_best.pth and saved_models/resnet34_unet_best.pth.
 
 ## Evaluate (Dice Score on Validation Set)
 
 # UNet
-python src/evaluate.py --model unet --data_root dataset/oxford-iiit-pet --checkpoint saved_models/unet_best.pth --splits_dir <splits_dir> --scan_threshold
+python src/evaluate.py --model unet --data_root dataset/oxford-iiit-pet --checkpoint saved_models/unet_best.pth --splits_dir <splits_dir> --scan_threshold --tta
 
 # ResNet34-UNet
-python src/evaluate.py --model resnet34_unet --data_root dataset/oxford-iiit-pet --checkpoint saved_models/resnet34_unet_best.pth --splits_dir <splits_dir> --scan_threshold
+python src/evaluate.py --model resnet34_unet --data_root dataset/oxford-iiit-pet --checkpoint saved_models/resnet34_unet_best.pth --splits_dir <splits_dir> --scan_threshold --tta
 
 
 ## Inference

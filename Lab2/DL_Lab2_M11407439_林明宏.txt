@@ -1,29 +1,35 @@
-AI Tool Disclosure: I used Claude Code by Anthropic to assist with debugging and code review.
+AI Tool Disclosure: I used Claude Code by Anthropic to assist with debugging, code review, and summarization.
 All design decisions are my own. Disclosed per course academic honesty policy.
 
 1. Implementation Highlights
+本次實作嚴格依照 UNet 與 ResNet34-UNet 原始論文架構進行實現。
+在 UNet 的上採樣部分，依照論文採用 nn.ConvTranspose2d；ResNet34-UNet 則採用 nn.Upsample。
+針對 ResNet34-UNet Bottleneck 後的第一個 Decoder 區塊，輸入 channel 應為 32 + 256 而非論文中的 32 + 512，
+如此才能與 Encoder 對應的 256-channel skip connection 正確進行 concatenation。
 
 2. Data Preprocessing Strategy
-圖片與 mask 統一 resize 至 384x384。Trimap 轉 binary mask：1 = 前景，2,3 = 背景。
-訓練集套用 Joint Augmentation：HFlip（p=0.5）、VFlip（p=0.5）、
-Rotation（±15°）、ColorJitter（brightness/contrast/saturation=0.2, hue=0.1）。
-幾何變換同步套用於 image 與 mask，顏色變換僅套用於 image。
-驗證與測試集僅做 resize 與 ImageNet normalization。
+考量寵物資料集的特性與硬體限制，所有圖片與 mask 統一 resize 至 384×384。
+依照規格將 Trimap 轉換為 binary mask。訓練集套用 Joint Augmentation 進行資料增強，
+包含 HFlip、VFlip、Rotation 與 ColorJitter，其中幾何變換同步作用於 image 與 mask，
+顏色變換則僅作用於 image。驗證集與測試集僅進行 resize 與 ImageNet normalization。
+ResNet34-UNet 額外加入 Elastic Distortion 以進一步增強資料多樣性；
+UNet 則不啟用 Elastic Distortion，因其架構對此類強增強較為敏感，反而容易導致效果下降。
 
 3. Training Strategy
-Loss：0.5 x BCE + 0.5 x Dice Loss。
-優化器：AdamW（lr=1e-4, weight_decay=1e-4）。
-排程器：ReduceLROnPlateau（mode=max, patience=5, factor=0.5）。
-推論時使用 TTA（原圖 + hflip + vflip + hflip&vflip 四路平均），
-並掃描 threshold（0.30~0.70）找最佳閾值。
+Batch Size: 16，Epoch: 210 (ResNet34-UNet)、130 (UNet)，搭配 LinearLR Warmup
+Loss: 0.5 × BCE + 0.5 × Dice Loss
+Optimizer: AdamW (lr=1e-4, weight_decay=1e-4)
+LR Scheduler: CosineAnnealingLR (UNet)、MultiStepLR = [50,100,125,150,175,200] (ResNet34-UNet)
+推論時採用 TTA（原圖 + hflip + vflip + hflip & vflip 平均），並掃描最佳 threshold
 
 4. Key Observations
-UNet 無 BN 導致前期收斂慢，前幾 epoch val Dice 接近 0，需更多 epoch 才穩定。
-ResNet34-UNet 因 BN 與殘差連接，收斂速度顯著較快。
-TTA 與 threshold 掃描帶來約 +0.005~0.01 的分數提升。
-RandomResizedCrop 與 512x512 均未改善，維持 384x384。
+使用 Adam 系列優化器時，由於 Momentum 統計量在訓練初期尚未穩定，直接以較大 lr 起步容易造成震盪。
+實驗發現搭配 LinearLR Warmup 可有效緩解此問題，並提升最終收斂品質。
+在 LR Scheduler 的選擇上，兩個模型皆嘗試過 ReduceLROnPlateau、CosineAnnealingLR 與 MultiStepLR。
+UNet 採用 MultiStepLR 時，訓練 epoch 數拉長且效果不佳，而改用 ReduceLROnPlateau 後收斂更為平穩。
+ResNet34-UNet 則受益於較小的 channel 數，訓練速度較快，MultiStepLR 的階段式衰減能讓模型學習更加穩定。
 
-5. Comparison between UNet and ResNet34_UNet
-ResNet34-UNet 參數量更多、特徵表達能力更強，BN 使訓練更穩定，收斂更快。
-UNet 嚴格遵循原始論文（valid conv、無 BN、center crop），架構精簡但訓練難度較高。
-兩者訓練策略相同，ResNet34-UNet 在 Kaggle 上最終表現略優於 UNet。
+5. Comparison between UNet and ResNet34-UNet
+ResNet34-UNet 擁有更強的特徵表達能力，搭配 BatchNorm 使訓練更穩定、收斂更快。
+UNet 架構雖然精簡，但由於 channel 數較大，bottleneck 甚至達 1024，計算量高且訓練難度較大。
+整體而言，ResNet34-UNet 在訓練效率與最終分數上均優於 UNet。

@@ -54,7 +54,7 @@ class BasicBlock(nn.Module):
         self.bn2   = nn.BatchNorm2d(out_channels)
         self.relu  = nn.ReLU(inplace=True)
 
-        # shortcut: stride!=1 或 channel 不同時用 1x1 conv 對齊
+        # shortcut: stride!=1 or channel 不同時用要用 1x1 conv 去對齊
         if stride != 1 or in_channels != out_channels:
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1,
@@ -70,14 +70,14 @@ class BasicBlock(nn.Module):
         out += self.shortcut(x)
         return self.relu(out)
 
-def _make_layer(in_channels, out_channels, num_blocks, stride=1):
+def build_stage(in_channels, out_channels, num_blocks, stride=1):
     layers = [BasicBlock(in_channels, out_channels, stride=stride)]
     for _ in range(1, num_blocks):
         layers.append(BasicBlock(out_channels, out_channels, stride=1))
     return nn.Sequential(*layers)
 
 class Bottleneck(nn.Module):
-    """concat layer3(256ch↓12²) + layer4(512ch@12²) → 32ch@12²"""
+    """f3 (256ch @ 24×24) 下採樣 + f4 (512ch @ 12×12) concat → Conv → 32ch @ 12×12"""
 
     def __init__(self):
         super().__init__()
@@ -146,10 +146,10 @@ class ResNet34UNet(nn.Module):
         self.relu    = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.layer1  = _make_layer(64,  64,  num_blocks=3, stride=1)
-        self.layer2  = _make_layer(64,  128, num_blocks=4, stride=2)
-        self.layer3  = _make_layer(128, 256, num_blocks=6, stride=2)
-        self.layer4  = _make_layer(256, 512, num_blocks=3, stride=2)
+        self.layer1  = build_stage(64,  64,  num_blocks=3, stride=1)
+        self.layer2  = build_stage(64,  128, num_blocks=4, stride=2)
+        self.layer3  = build_stage(128, 256, num_blocks=6, stride=2)
+        self.layer4  = build_stage(256, 512, num_blocks=3, stride=2)
 
         # Bottleneck + Decoder
         self.bottleneck = Bottleneck()
