@@ -16,7 +16,7 @@ class DoubleConv(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-class Down(nn.Module):
+class DownBlock(nn.Module):
     """MaxPool2d + DoubleConv"""
 
     def __init__(self, in_channels, out_channels):
@@ -27,7 +27,7 @@ class Down(nn.Module):
     def forward(self, x):
         return self.conv(self.pool(x))
 
-class Up(nn.Module):
+class UpBlock(nn.Module):
     """ConvTranspose2d upsample + center crop skip + DoubleConv"""
 
     def __init__(self, in_channels, out_channels):
@@ -55,18 +55,18 @@ class UNet(nn.Module):
 
         # Encoder
         self.enc1 = DoubleConv(in_channels, 64)
-        self.enc2 = Down(64, 128)
-        self.enc3 = Down(128, 256)
-        self.enc4 = Down(256, 512)
+        self.enc2 = DownBlock(64, 128)
+        self.enc3 = DownBlock(128, 256)
+        self.enc4 = DownBlock(256, 512)
 
         # Bottleneck Layer
-        self.bottleneck = Down(512, 1024)
+        self.bottleneck = DownBlock(512, 1024)
 
         # Decoder
-        self.dec4 = Up(1024, 512)
-        self.dec3 = Up(512, 256)
-        self.dec2 = Up(256, 128)
-        self.dec1 = Up(128, 64)
+        self.dec4 = UpBlock(1024, 512)
+        self.dec3 = UpBlock(512, 256)
+        self.dec2 = UpBlock(256, 128)
+        self.dec1 = UpBlock(128, 64)
 
         # Output
         self.out_conv = nn.Conv2d(64, out_channels, kernel_size=1)

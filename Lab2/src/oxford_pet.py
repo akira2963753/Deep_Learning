@@ -1,4 +1,3 @@
-import os
 import random
 import tarfile
 import urllib.request
@@ -7,17 +6,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision import transforms
 
 URLS = {
     "images": "https://www.robots.ox.ac.uk/~vgg/data/pets/data/images.tar.gz",
     "annotations": "https://www.robots.ox.ac.uk/~vgg/data/pets/data/annotations.tar.gz",
 }
-
-# ImageNet normalization
-IMAGENET_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_STD = [0.229, 0.224, 0.225]
-IMAGE_SIZE = 384
 
 def _download_with_progress(url: str, dest: Path) -> None:
     try:
@@ -159,54 +152,5 @@ class OxfordPetDataset(Dataset):
         return image, mask
 
 
-def get_default_transform():
-    return transforms.Compose([
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-    ])
-
-
-def get_default_target_transform():
-    return transforms.Compose([
-        transforms.Resize(
-            (IMAGE_SIZE, IMAGE_SIZE),
-            interpolation=transforms.InterpolationMode.NEAREST,
-        ),
-        transforms.PILToTensor(),
-    ])
-
-
-def load_dataset(root, split, transform=None, target_transform=None, splits_dir=None):
-    if transform is None:
-        transform = get_default_transform()
-    if target_transform is None and split != "test":
-        target_transform = get_default_target_transform()
-    return OxfordPetDataset(root, split, transform, target_transform, splits_dir=splits_dir)
-
-
 if __name__ == "__main__":
-    import torch
-
-    DATASET_ROOT = "dataset/oxford-iiit-pet"
-
-    print("=== Download dataset ===")
-    download_dataset(DATASET_ROOT)
-
-    print("\n=== Check dataset size ===")
-    for split in ("train", "val", "test"):
-        ds = load_dataset(DATASET_ROOT, split)
-        print(f"  {split:5s}: {len(ds):5d}")
-
-    print("\n=== Check sample ===")
-    train_ds = load_dataset(DATASET_ROOT, "train")
-    image, mask = train_ds[0]
-    print(f"  image: {image.shape}  mask: {mask.shape}")
-    unique_values = torch.unique(mask).tolist()
-    print(f"  mask values: {unique_values}")
-    assert set(unique_values).issubset({0, 1})
-
-    test_ds = load_dataset(DATASET_ROOT, "test")
-    img, name = test_ds[0]
-    print(f"  test sample: {name}, shape: {img.shape}")
-    print("\nAll OK!")
+    download_dataset("dataset/oxford-iiit-pet")

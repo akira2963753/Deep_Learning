@@ -77,7 +77,7 @@ def build_stage(in_channels, out_channels, num_blocks, stride=1):
     return nn.Sequential(*layers)
 
 class Bottleneck(nn.Module):
-    """f3 (256ch @ 24×24) 下採樣 + f4 (512ch @ 12×12) concat → Conv → 32ch @ 12×12"""
+    """將 f3 (256ch) 下採樣後與 f4 (512ch) concat，經過 Conv 壓縮成 32ch"""
 
     def __init__(self):
         super().__init__()

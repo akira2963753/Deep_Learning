@@ -13,6 +13,32 @@ IMAGENET_STD  = [0.229, 0.224, 0.225]
 IMAGE_SIZE = 384
 
 
+def pad_and_crop(images, model, pad, image_size, apply_sigmoid=False):
+    """pad -> forward -> crop 回原始大小，pad=0 時直接 forward"""
+    if pad > 0:
+        images = F.pad(images, [pad, pad, pad, pad], mode='reflect')
+    out = model(images)
+    if pad > 0:
+        oh, ow = out.shape[2], out.shape[3]
+        y1 = (oh - image_size) // 2
+        x1 = (ow - image_size) // 2
+        out = out[:, :, y1:y1 + image_size, x1:x1 + image_size]
+    if apply_sigmoid:
+        out = torch.sigmoid(out)
+    return out
+
+
+def compute_pad_size(input_size, model):
+    """算 reflection padding，ResNet34-UNet 不需要所以回傳 0"""
+    dummy = torch.zeros(1, 3, input_size, input_size)
+    with torch.no_grad():
+        out = model.cpu()(dummy)
+    out_size = out.shape[2]
+    if out_size >= input_size:
+        return 0
+    return (input_size - out_size + 1) // 2
+
+
 def dice_loss(pred, target, smooth=1e-6):
     pred = torch.sigmoid(pred)
     pred   = pred.contiguous().view(-1)

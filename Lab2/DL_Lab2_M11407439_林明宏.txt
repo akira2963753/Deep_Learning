@@ -14,6 +14,7 @@ All design decisions are my own. Disclosed per course academic honesty policy.
 顏色變換則僅作用於 image。驗證集與測試集僅進行 resize 與 ImageNet normalization。
 ResNet34-UNet 額外加入 Elastic Distortion 以進一步增強資料多樣性；
 UNet 則不啟用 Elastic Distortion，因其架構對此類強增強較為敏感，反而容易導致效果下降。
+值得注意的是，由於 UNet 原始架構並沒有加入 Padding，因此我會在資料前處理時加入 Reflection Padding 做解決。
 
 3. Training Strategy
 Batch Size: 16，Epoch: 210 (ResNet34-UNet)、130 (UNet)，搭配 LinearLR Warmup

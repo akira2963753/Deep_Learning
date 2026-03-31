@@ -4,40 +4,17 @@ import random
 import sys
 
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset, _get_splits
-from src.utils import combined_loss, dice_score, get_train_transform, get_val_transform, JointTransform, IMAGE_SIZE
+from src.utils import combined_loss, compute_pad_size, dice_score, get_train_transform, get_val_transform, JointTransform, IMAGE_SIZE, pad_and_crop
 from PIL import Image
 import numpy as np
 
 
-def compute_pad_size(input_size, model):
-    """算出 reflection padding 的大小，ResNet34-UNet 不需要所以回傳 0"""
-    dummy = torch.zeros(1, 3, input_size, input_size)
-    with torch.no_grad():
-        out = model(dummy)
-    out_size = out.shape[2]
-    if out_size >= input_size:
-        return 0
-    return (input_size - out_size + 1) // 2
-
-
-def pad_and_crop(images, model, pad, image_size):
-    """pad -> forward -> crop 回原始大小，pad=0 時直接 forward"""
-    if pad > 0:
-        images = F.pad(images, [pad, pad, pad, pad], mode='reflect')
-    preds = model(images)
-    if pad > 0:
-        oh, ow = preds.shape[2], preds.shape[3]
-        y1 = (oh - image_size) // 2
-        x1 = (ow - image_size) // 2
-        preds = preds[:, :, y1:y1 + image_size, x1:x1 + image_size]
-    return preds
 
 
 class AugmentedPetDataset(torch.utils.data.Dataset):
@@ -68,6 +45,7 @@ class AugmentedPetDataset(torch.utils.data.Dataset):
 
 
 def train(args):
+    # 設好隨機種子，提高可重現性
     random.seed(42)
     np.random.seed(42)
     torch.manual_seed(42)
@@ -95,7 +73,7 @@ def train(args):
     os.makedirs(args.save_dir, exist_ok=True)
     last_path = os.path.join(args.save_dir, f"{args.model}_last.pth")
 
-    # 資料集
+    # 資料集，如果是 Unet 就不需要套用 elastic_p
     elastic_p = 0.4 if args.model == "resnet34_unet" else 0.0
     train_dataset = AugmentedPetDataset(args.data_root, "train", get_train_transform(elastic_p=elastic_p), splits_dir=args.splits_dir)
     img_tf, mask_tf = get_val_transform()
@@ -110,19 +88,17 @@ def train(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
+    warmup_epochs = 5
+    warmup_scheduler = optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
+    )
+
+    # 如果是 UNet 就使用 ReduceLROnPlateau 而 ResNet34-UNet 使用 MultiStepLR
     if args.model == "unet":
-        warmup_epochs = 5
-        warmup_scheduler = optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
-        )
         main_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, mode="max", patience=5, factor=0.5
         )
-    else:  # resnet34_unet
-        warmup_epochs = 5
-        warmup_scheduler = optim.lr_scheduler.LinearLR(
-            optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs
-        )
+    else:
         main_scheduler = optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=[50, 100, 125, 150, 175, 200, 215, 230], gamma=0.5
         )

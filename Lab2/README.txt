@@ -1,6 +1,9 @@
 ## Environment Setup
 pip install -r requirements.txt
 
+## Download Dataset
+python -m src.oxford_pet
+
 ## Training
 
 # UNet

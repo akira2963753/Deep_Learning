@@ -2,28 +2,17 @@ import argparse
 import csv
 import os
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.oxford_pet import OxfordPetDataset
-from src.utils import get_val_transform, IMAGE_SIZE
-
-
-def compute_pad_size(input_size, model):
-    """算 reflection padding，ResNet34-UNet 不需要所以回傳 0"""
-    dummy = torch.zeros(1, 3, input_size, input_size)
-    with torch.no_grad():
-        out = model.cpu()(dummy)
-    out_size = out.shape[2]
-    if out_size >= input_size:
-        return 0
-    return (input_size - out_size + 1) // 2
-
+from src.utils import compute_pad_size, pad_and_crop, get_val_transform, IMAGE_SIZE
 
 def rle_encode(mask: np.ndarray) -> str:
     """把 binary mask 轉成 RLE 字串 (column-major, 1-indexed)"""
@@ -59,13 +48,10 @@ def run_inference(args):
     img_tf, _ = get_val_transform()
 
     if args.test_list:
-        from pathlib import Path
-        import torch.utils.data as tud
-
         with open(args.test_list, "r") as f:
             image_names = [l.strip() for l in f if l.strip()]
 
-        class KaggleTestDataset(tud.Dataset):
+        class KaggleTestDataset(Dataset):
             def __init__(self, root, names, transform):
                 self.images_dir = Path(root) / "images"
                 self.names = names
@@ -73,8 +59,7 @@ def run_inference(args):
             def __len__(self): return len(self.names)
             def __getitem__(self, idx):
                 name = self.names[idx]
-                from PIL import Image as PILImage
-                img = PILImage.open(self.images_dir / f"{name}.jpg").convert("RGB")
+                img = Image.open(self.images_dir / f"{name}.jpg").convert("RGB")
                 orig_size = (img.height, img.width)
                 if self.transform: img = self.transform(img)
                 return img, name, orig_size
@@ -98,26 +83,15 @@ def run_inference(args):
 
             images = images.to(device)
 
-            def _forward(imgs):
-                if pad > 0:
-                    imgs = F.pad(imgs, [pad, pad, pad, pad], mode='reflect')
-                logits = model(imgs)
-                if pad > 0:
-                    oh, ow = logits.shape[2], logits.shape[3]
-                    y1 = (oh - IMAGE_SIZE) // 2
-                    x1 = (ow - IMAGE_SIZE) // 2
-                    logits = logits[:, :, y1:y1 + IMAGE_SIZE, x1:x1 + IMAGE_SIZE]
-                return torch.sigmoid(logits)
-
             if args.tta:
                 # TTA: 原圖 + hflip + vflip + 兩者
-                p0 = _forward(images)
-                p1 = torch.flip(_forward(torch.flip(images, [3])), [3])
-                p2 = torch.flip(_forward(torch.flip(images, [2])), [2])
-                p3 = torch.flip(_forward(torch.flip(images, [2, 3])), [2, 3])
+                p0 = pad_and_crop(images, model, pad, IMAGE_SIZE, apply_sigmoid=True)
+                p1 = torch.flip(pad_and_crop(torch.flip(images, [3]), model, pad, IMAGE_SIZE, apply_sigmoid=True), [3])
+                p2 = torch.flip(pad_and_crop(torch.flip(images, [2]), model, pad, IMAGE_SIZE, apply_sigmoid=True), [2])
+                p3 = torch.flip(pad_and_crop(torch.flip(images, [2, 3]), model, pad, IMAGE_SIZE, apply_sigmoid=True), [2, 3])
                 preds = (p0 + p1 + p2 + p3) / 4.0
             else:
-                preds = _forward(images)
+                preds = pad_and_crop(images, model, pad, IMAGE_SIZE, apply_sigmoid=True)
             preds = (preds > args.threshold).cpu().numpy()
 
             for i, (pred, name) in enumerate(zip(preds, names)):
@@ -127,9 +101,8 @@ def run_inference(args):
                 if orig_sizes is not None:
                     oh = int(orig_sizes[0][i]) if hasattr(orig_sizes[0], '__len__') else int(orig_sizes[0])
                     ow = int(orig_sizes[1][i]) if hasattr(orig_sizes[1], '__len__') else int(orig_sizes[1])
-                    from PIL import Image as PILImage
-                    mask_pil = PILImage.fromarray(mask_2d)
-                    mask_pil = mask_pil.resize((ow, oh), PILImage.NEAREST)
+                    mask_pil = Image.fromarray(mask_2d)
+                    mask_pil = mask_pil.resize((ow, oh), Image.NEAREST)
                     mask_2d  = np.array(mask_pil)
 
                 rle = rle_encode(mask_2d)
