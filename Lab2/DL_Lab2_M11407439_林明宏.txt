@@ -22,6 +22,7 @@ Loss: 0.5 × BCE + 0.5 × Dice Loss
 Optimizer: AdamW (lr=1e-4, weight_decay=1e-4)
 LR Scheduler: CosineAnnealingLR (UNet)、MultiStepLR = [50,100,125,150,175,200] (ResNet34-UNet)
 推論時採用 TTA（原圖 + hflip + vflip + hflip & vflip 平均），並掃描最佳 threshold
+訓練會採用 Auto Mix Precision 去加速訓練
 
 4. Key Observations
 使用 Adam 系列優化器時，由於 Momentum 統計量在訓練初期尚未穩定，直接以較大 lr 起步容易造成震盪。
