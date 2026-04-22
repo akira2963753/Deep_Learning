@@ -307,3 +307,4 @@ if __name__ == "__main__":
     wandb.init(project="DLP-Lab5-DQN-CartPole", name=args.wandb_run_name, save_code=True)
     agent = DQNAgent(args=args)
     agent.run(episodes=args.episodes)
+    wandb.finish()
