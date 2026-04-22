@@ -33,47 +33,20 @@ class DQN(nn.Module):
         - Feel free to change the architecture (e.g. number of hidden layers and the width of each hidden layer) as you like
         - Feel free to add any member variables/functions whenever needed
     """
-    def __init__(self, input_shape, num_actions):
+    def __init__(self, num_actions):
         super(DQN, self).__init__()
         ########## YOUR CODE HERE (5~10 lines) ##########
-        self.is_atari = (len(input_shape) == 3)
-
-        if self.is_atari:
-            in_channels = input_shape[0]
-            self.conv = nn.Sequential(
-                nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
-                nn.ReLU(),
-                nn.Conv2d(32, 64, kernel_size=4, stride=2),
-                nn.ReLU(),
-                nn.Conv2d(64, 64, kernel_size=3, stride=1),
-                nn.ReLU(),
-                nn.Flatten(),
-            )
-            with torch.no_grad():
-                dummy = torch.zeros(1, *input_shape)
-                conv_out_size = self.conv(dummy).shape[1]
-            self.fc = nn.Sequential(
-                nn.Linear(conv_out_size, 512),
-                nn.ReLU(),
-                nn.Linear(512, num_actions),
-            )
-        else:
-            in_features = input_shape[0]
-            self.network = nn.Sequential(
-                nn.Linear(in_features, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, num_actions),
-            )
+        self.network = nn.Sequential(
+            nn.Linear(4, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_actions)
+        )
         ########## END OF YOUR CODE ##########
 
     def forward(self, x):
-        if self.is_atari:
-            x = x / 255.0
-            return self.fc(self.conv(x))
-        else:
-            return self.network(x)
+        return self.network(x)
 
 
 class AtariPreprocessor:
@@ -144,23 +117,15 @@ class DQNAgent:
         self.env = gym.make(env_name, render_mode="rgb_array")
         self.test_env = gym.make(env_name, render_mode="rgb_array")
         self.num_actions = self.env.action_space.n
+        self.preprocessor = CartPolePreprocessor()
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", self.device)
 
-        self.is_atari = "ALE/" in env_name
-        if self.is_atari:
-            self.preprocessor = AtariPreprocessor()
-            input_shape = (4, 84, 84)
-            self.best_reward = -21
-        else:
-            self.preprocessor = CartPolePreprocessor()
-            input_shape = (4,)
-            self.best_reward = 0
 
-        self.q_net = DQN(input_shape, self.num_actions).to(self.device)
+        self.q_net = DQN(self.num_actions).to(self.device)
         self.q_net.apply(init_weights)
-        self.target_net = DQN(input_shape, self.num_actions).to(self.device)
+        self.target_net = DQN(self.num_actions).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr)
 
@@ -172,6 +137,7 @@ class DQNAgent:
 
         self.env_count = 0
         self.train_count = 0
+        self.best_reward = 0  # Initilized to 0 for CartPole and to -21 for Pong
         self.max_episode_steps = args.max_episode_steps
         self.replay_start_size = args.replay_start_size
         self.target_update_frequency = args.target_update_frequency
@@ -336,22 +302,9 @@ if __name__ == "__main__":
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     parser.add_argument("--train-per-step", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=3000)
-    parser.add_argument("--env", type=str, default="CartPole-v1")
-    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(args.seed)
-
-    if "ALE/" in args.env:
-        project_name = "DLP-Lab5-DQN-" + args.env.split("/")[-1].split("-")[0]
-    else:
-        project_name = "DLP-Lab5-DQN-" + args.env.split("-")[0]
-
-    wandb.init(project=project_name, name=args.wandb_run_name, save_code=True)
-    agent = DQNAgent(env_name=args.env, args=args)
+    wandb.init(project="DLP-Lab5-DQN-CartPole", name=args.wandb_run_name, save_code=True)
+    agent = DQNAgent(args=args)
     agent.run(episodes=args.episodes)
     wandb.finish()
