@@ -38,7 +38,7 @@ class DQN(nn.Module):
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.is_atari = (len(input_shape) == 3)
 
-        if self.is_atari:
+        if self.is_atari: # For Task 2
             in_channels = input_shape[0]
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
@@ -57,7 +57,7 @@ class DQN(nn.Module):
                 nn.ReLU(),
                 nn.Linear(512, num_actions),
             )
-        else:
+        else: # For Task 1
             in_features = input_shape[0]
             self.network = nn.Sequential(
                 nn.Linear(in_features, 128),
@@ -149,11 +149,11 @@ class DQNAgent:
         print("Using device:", self.device)
 
         self.is_atari = "ALE/" in env_name
-        if self.is_atari:
+        if self.is_atari: # For Task 2
             self.preprocessor = AtariPreprocessor()
             input_shape = (4, 84, 84)
             self.best_reward = -21
-        else:
+        else: # For Task 1
             self.preprocessor = CartPolePreprocessor()
             input_shape = (4,)
             self.best_reward = 0
