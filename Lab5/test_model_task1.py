@@ -48,7 +48,7 @@ def evaluate(args):
 
         rewards.append(total_reward)
         out_path = os.path.join(args.output_dir, f"eval_ep{ep}.mp4")
-        with imageio.get_writer(out_path, fps=30) as video:
+        with imageio.get_writer(out_path, fps=30, macro_block_size=1) as video:
             for f in frames:
                 video.append_data(f)
         print(f"seed: {args.seed + ep}, eval reward: {total_reward}")
