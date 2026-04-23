@@ -174,6 +174,9 @@ class PrioritizedReplayBuffer:
         self.tree   = SumTree(capacity)  # O(log N) priority sampling & update
         self.size   = 0                  # current number of valid transitions
 
+    def __len__(self):
+        return self.size
+
     def add(self, transition, error):
         ########## YOUR CODE HERE (for Task 3) ##########
         # New transitions always receive max existing priority,
