@@ -316,7 +316,7 @@ class DQNAgent:
     def select_action(self, state):
         if random.random() < self.epsilon:
             return random.randint(0, self.num_actions - 1)
-        state_tensor = torch.from_numpy(np.array(state)).float().unsqueeze(0).to(self.device)
+        state_tensor = torch.from_numpy(np.array(state)).unsqueeze(0).to(self.device).float()
         with torch.no_grad():
             q_values = self.q_net(state_tensor)
         return q_values.argmax().item()
@@ -326,7 +326,7 @@ class DQNAgent:
         explore = [random.random() < self.epsilon for _ in range(N)]
         if all(explore):
             return [random.randint(0, self.num_actions - 1) for _ in range(N)]
-        batch = torch.from_numpy(np.stack(states_list)).float().to(self.device)
+        batch = torch.from_numpy(np.stack(states_list)).to(self.device).float()
         with torch.no_grad():
             greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
         return [
@@ -528,7 +528,7 @@ class DQNAgent:
         total_reward = 0
 
         while not done:
-            state_tensor = torch.from_numpy(np.array(state)).float().unsqueeze(0).to(self.device)
+            state_tensor = torch.from_numpy(np.array(state)).unsqueeze(0).to(self.device).float()
             with torch.no_grad():
                 action = self.q_net(state_tensor).argmax().item()
             next_obs, reward, terminated, truncated, _ = self.test_env.step(action)
@@ -562,8 +562,9 @@ class DQNAgent:
 
         # Convert the states, actions, rewards, next_states, and dones into torch tensors
         # NOTE: Enable this part after you finish the mini-batch sampling
-        states = torch.from_numpy(np.array(states).astype(np.float32)).to(self.device)
-        next_states = torch.from_numpy(np.array(next_states).astype(np.float32)).to(self.device)
+        # Send as uint8 to GPU first, then convert to float32 on GPU (4x less CPU memory alloc)
+        states = torch.from_numpy(np.array(states)).to(self.device).float()
+        next_states = torch.from_numpy(np.array(next_states)).to(self.device).float()
         actions = torch.tensor(actions, dtype=torch.int64).to(self.device)
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
