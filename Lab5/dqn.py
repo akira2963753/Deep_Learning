@@ -145,6 +145,8 @@ class SumTree:
 
     def get(self, value):
         # Find the leaf whose cumulative prefix sum first exceeds `value`
+        # Clamp value to [0, total] to avoid floating-point overshoot
+        value = min(value, self.total - 1e-6)
         idx = 0
         while idx < self.capacity - 1:
             left = 2 * idx + 1
@@ -201,6 +203,10 @@ class PrioritizedReplayBuffer:
         for i in range(batch_size):
             value = random.uniform(segment * i, segment * (i + 1))
             leaf_idx, priority = self.tree.get(value)
+            # Guard: resample if we land on an unfilled slot (buffer=None) or zero priority
+            while self.buffer[leaf_idx] is None or priority <= 0:
+                value = random.uniform(0, self.tree.total)
+                leaf_idx, priority = self.tree.get(value)
             indices.append(leaf_idx)
             priorities.append(priority)
 
