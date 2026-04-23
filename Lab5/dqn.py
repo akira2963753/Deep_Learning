@@ -202,8 +202,21 @@ class DQNAgent:
             q_values = self.q_net(state_tensor)
         return q_values.argmax().item()
 
+    def select_action_batch(self, states_list):
+        N = len(states_list)
+        explore = [random.random() < self.epsilon for _ in range(N)]
+        if all(explore):
+            return [random.randint(0, self.num_actions - 1) for _ in range(N)]
+        batch = torch.from_numpy(np.stack(states_list)).float().to(self.device)
+        with torch.no_grad():
+            greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
+        return [
+            random.randint(0, self.num_actions - 1) if explore[i] else greedy_actions[i]
+            for i in range(N)
+        ]
+
     def run(self, episodes=1000):
-        if self.num_envs > 1:
+        if self.num_envs > 1: # 開啟多核心運算模式
             return self.run_vectorized(episodes)
 
         for ep in range(episodes):
@@ -275,18 +288,22 @@ class DQNAgent:
                 })
 
     def run_vectorized(self, episodes=1000):
+        '''
+        使用 run_vectorized 去支援多核心 CPU 運算，讓訓練速度加快
+        '''
         N = self.num_envs
-        obs_batch, _ = self.vec_env.reset()
-        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)]
-        ep_rewards = np.zeros(N, dtype=np.float32)
-        ep_count = 0
+        print(f"=== {N} CORES TRAINING START===")
+        obs_batch, _ = self.vec_env.reset() # 重置多個環境
+        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] # 初始化多環境狀態
+        ep_rewards = np.zeros(N, dtype=np.float32) # 初始化多個環境獎勵
+        ep_count = 0 # 初始化 episode 計數
 
-        while ep_count < episodes:
-            actions = np.array([self.select_action(states[i]) for i in range(N)], dtype=np.int64)
+        while ep_count < episodes: 
+            actions = np.array(self.select_action_batch(states), dtype=np.int64)
             next_obs_batch, rewards, terminateds, truncateds, infos = self.vec_env.step(actions)
             self.env_count += N
 
-            for i in range(N):
+            for i in range(N): 
                 done = bool(terminateds[i]) or bool(truncateds[i])
 
                 if done:
@@ -398,6 +415,7 @@ class DQNAgent:
         loss = nn.functional.mse_loss(q_values, target_q_values)
         self.optimizer.zero_grad()
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), float('inf'))
         self.optimizer.step()
         ########## END OF YOUR CODE ##########
 
@@ -406,7 +424,7 @@ class DQNAgent:
 
         # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
-            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f}")
+            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f}")
 
 
 if __name__ == "__main__":
