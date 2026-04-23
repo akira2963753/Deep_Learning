@@ -109,33 +109,116 @@ class CartPolePreprocessor:
         return obs.astype(np.float32)
 
 
+class SumTree:
+    """
+    Binary segment tree for O(log N) priority sampling and update.
+    - Internal nodes: sum of their children's priorities
+    - Leaf nodes: individual transition priorities
+    - Total size: 2 * capacity - 1 nodes
+    - Leaf positions: tree[capacity-1 .. 2*capacity-2]
+    """
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1, dtype=np.float32)
+        self.pos = 0  # current write position (circular, in [0, capacity-1])
+
+    def _propagate(self, idx, delta):
+        # Propagate priority delta upward to the root
+        parent = (idx - 1) // 2
+        self.tree[parent] += delta
+        if parent != 0:
+            self._propagate(parent, delta)
+
+    def update(self, leaf_idx, priority):
+        # leaf_idx: logical leaf index in [0, capacity-1]
+        tree_idx = leaf_idx + self.capacity - 1
+        delta = priority - self.tree[tree_idx]
+        self.tree[tree_idx] = priority
+        self._propagate(tree_idx, delta)
+
+    def add(self, priority):
+        # Write priority to current position, return the leaf index used
+        leaf_pos = self.pos
+        self.update(self.pos, priority)
+        self.pos = (self.pos + 1) % self.capacity
+        return leaf_pos
+
+    def get(self, value):
+        # Find the leaf whose cumulative prefix sum first exceeds `value`
+        idx = 0
+        while idx < self.capacity - 1:
+            left = 2 * idx + 1
+            if value <= self.tree[left]:
+                idx = left
+            else:
+                value -= self.tree[left]
+                idx = left + 1
+        leaf_idx = idx - (self.capacity - 1)
+        return leaf_idx, self.tree[idx]
+
+    @property
+    def total(self):
+        return float(self.tree[0])  # root = sum of all priorities
+
+
 class PrioritizedReplayBuffer:
     """
         Prioritizing the samples in the replay memory by the Bellman error
         See the paper (Schaul et al., 2016) at https://arxiv.org/abs/1511.05952
-    """ 
+    """
     def __init__(self, capacity, alpha=0.6, beta=0.4):
         self.capacity = capacity
         self.alpha = alpha
         self.beta = beta
-        self.buffer = []
-        self.priorities = np.zeros((capacity,), dtype=np.float32)
-        self.pos = 0
+        self.buffer = [None] * capacity  # fixed-size list for O(1) indexed access
+        self.tree   = SumTree(capacity)  # O(log N) priority sampling & update
+        self.size   = 0                  # current number of valid transitions
 
     def add(self, transition, error):
-        ########## YOUR CODE HERE (for Task 3) ########## 
-                    
-        ########## END OF YOUR CODE (for Task 3) ########## 
-        return 
-    def sample(self, batch_size):
-        ########## YOUR CODE HERE (for Task 3) ########## 
-                    
-        ########## END OF YOUR CODE (for Task 3) ########## 
+        ########## YOUR CODE HERE (for Task 3) ##########
+        # New transitions always receive max existing priority,
+        # ensuring they are sampled at least once before their TD error is known.
+        max_priority = self.tree.tree[self.tree.capacity - 1:
+                                      self.tree.capacity - 1 + self.size].max() \
+                       if self.size > 0 else 1.0
+
+        leaf_pos = self.tree.add(max_priority)  # write to SumTree, get leaf index
+        self.buffer[leaf_pos] = transition       # store transition at same index
+        self.size = min(self.size + 1, self.capacity)
+        ########## END OF YOUR CODE (for Task 3) ##########
         return
+
+    def sample(self, batch_size):
+        ########## YOUR CODE HERE (for Task 3) ##########
+        indices, priorities = [], []
+        # Stratified sampling: divide total priority into batch_size equal segments
+        # and sample one value uniformly from each segment for better coverage.
+        segment = self.tree.total / batch_size
+
+        for i in range(batch_size):
+            value = random.uniform(segment * i, segment * (i + 1))
+            leaf_idx, priority = self.tree.get(value)
+            indices.append(leaf_idx)
+            priorities.append(priority)
+
+        # IS weights: w_i = (1 / (N * P(i)))^beta, normalized so max weight = 1
+        probs   = np.array(priorities, dtype=np.float32) / self.tree.total
+        weights = (self.size * probs) ** (-self.beta)
+        weights /= weights.max()
+
+        batch = [self.buffer[i] for i in indices]
+        ########## END OF YOUR CODE (for Task 3) ##########
+        return batch, indices, weights.astype(np.float32)
+
     def update_priorities(self, indices, errors):
-        ########## YOUR CODE HERE (for Task 3) ########## 
-                    
-        ########## END OF YOUR CODE (for Task 3) ########## 
+        ########## YOUR CODE HERE (for Task 3) ##########
+        # Vectorized: compute new raw priorities, then update SumTree one by one.
+        # raw priority = |delta| + epsilon  (epsilon prevents zero priority)
+        # alpha is applied here so SumTree stores p^alpha directly.
+        new_prios = np.abs(errors) + 1e-6
+        for idx, prio in zip(indices, new_prios):
+            self.tree.update(idx, float(prio) ** self.alpha)
+        ########## END OF YOUR CODE (for Task 3) ##########
         return
         
 
@@ -179,7 +262,34 @@ class DQNAgent:
         self.train_per_step = args.train_per_step
         self.save_dir = args.save_dir
         os.makedirs(self.save_dir, exist_ok=True)
-        self.memory = deque(maxlen=args.memory_size)
+
+        # Task 3 enhancement flags (all default to False for vanilla DQN compatibility)
+        self.use_ddqn      = args.use_ddqn      if hasattr(args, 'use_ddqn')      else False
+        self.use_per       = args.use_per        if hasattr(args, 'use_per')        else False
+        self.use_multistep = args.use_multistep  if hasattr(args, 'use_multistep')  else False
+        # n_step=1 when multistep disabled → gamma^1 = gamma, identical to vanilla
+        self.n_step        = (args.n_step if hasattr(args, 'n_step') else 1) if self.use_multistep else 1
+
+        # Select replay buffer based on flag
+        if self.use_per:
+            per_alpha = args.per_alpha if hasattr(args, 'per_alpha') else 0.6
+            per_beta  = args.per_beta  if hasattr(args, 'per_beta')  else 0.4
+            self.memory = PrioritizedReplayBuffer(args.memory_size, per_alpha, per_beta)
+        else:
+            self.memory = deque(maxlen=args.memory_size)
+
+        # Multi-step: one n-step sliding-window buffer per env
+        # Guard: multistep requires vectorized mode (num_envs > 1)
+        if self.use_multistep:
+            if self.num_envs == 1:
+                print("[WARNING] --use-multistep requires --num-envs > 1. Multi-step DISABLED.")
+                self.use_multistep = False
+            else:
+                self.nstep_buffers = [deque() for _ in range(self.num_envs)]
+
+        # Milestone checkpoints for Task 3 grading (600k, 1M, 1.5M, 2M, 2.5M env steps)
+        self.milestone_steps   = {600_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000}
+        self.saved_milestones  = set()
 
         if self.num_envs > 1:
             import functools
@@ -303,7 +413,15 @@ class DQNAgent:
             next_obs_batch, rewards, terminateds, truncateds, infos = self.vec_env.step(actions)
             self.env_count += N
 
-            for i in range(N): 
+            # Save milestone checkpoints when env_count crosses target thresholds
+            for ms in list(self.milestone_steps):
+                if ms not in self.saved_milestones and self.env_count >= ms:
+                    path = os.path.join(self.save_dir, f"model_{ms}.pt")
+                    torch.save(self.q_net.state_dict(), path)
+                    print(f"[Milestone] Saved {path} (env_count={self.env_count})")
+                    self.saved_milestones.add(ms)
+
+            for i in range(N):
                 done = bool(terminateds[i]) or bool(truncateds[i])
 
                 if done:
@@ -311,7 +429,38 @@ class DQNAgent:
                 else:
                     next_state = self.vec_preprocessors[i].step(next_obs_batch[i])
 
-                self.memory.append((states[i], int(actions[i]), float(rewards[i]), next_state, done))
+                transition = (states[i], int(actions[i]), float(rewards[i]), next_state, done)
+
+                if self.use_multistep:
+                    self.nstep_buffers[i].append(transition)
+
+                    # Once n transitions are accumulated, emit one n-step transition
+                    if len(self.nstep_buffers[i]) >= self.n_step:
+                        buf = self.nstep_buffers[i]
+                        # R = r0 + γ*r1 + ... + γ^(n-1)*r_{n-1}
+                        # Episode boundary is handled by the flush below — no cross-episode mixing
+                        R      = sum(self.gamma ** k * buf[k][2] for k in range(self.n_step))
+                        s0, a0 = buf[0][0], buf[0][1]       # state and action at t=0
+                        sn, dn = buf[-1][3], buf[-1][4]     # next_state, done at t=n
+                        t = (s0, a0, R, sn, dn)
+                        self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
+                        self.nstep_buffers[i].popleft()     # slide window forward by 1
+
+                    # Episode ended: flush remaining transitions (shorter than n steps)
+                    if done:
+                        while self.nstep_buffers[i]:
+                            buf     = self.nstep_buffers[i]
+                            n_rem   = len(buf)
+                            R       = sum(self.gamma ** k * buf[k][2] for k in range(n_rem))
+                            s0, a0  = buf[0][0], buf[0][1]
+                            sn, dn  = buf[-1][3], buf[-1][4]
+                            t = (s0, a0, R, sn, dn)
+                            self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
+                            self.nstep_buffers[i].popleft()
+                else:
+                    # No multi-step: store single-step transition directly
+                    self.memory.add(transition, error=1.0) if self.use_per else self.memory.append(transition)
+
                 ep_rewards[i] += rewards[i]
 
                 if done:
@@ -392,8 +541,13 @@ class DQNAgent:
         self.train_count += 1
        
         ########## YOUR CODE HERE (<5 lines) ##########
-        # Sample a mini-batch of (s,a,r,s',done) from the replay buffer
-        batch = random.sample(self.memory, self.batch_size)
+        # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
+        if self.use_per:
+            batch, per_indices, per_weights = self.memory.sample(self.batch_size)
+            per_weights = torch.tensor(per_weights, dtype=torch.float32).to(self.device)
+        else:
+            batch = random.sample(self.memory, self.batch_size)
+            per_indices, per_weights = None, None
         states, actions, rewards, next_states, dones = zip(*batch)
         ########## END OF YOUR CODE ##########
 
@@ -409,10 +563,29 @@ class DQNAgent:
         ########## YOUR CODE HERE (~10 lines) ##########
         # Implement the loss function of DQN and the gradient updates
         with torch.no_grad():
-            next_q_values = self.target_net(next_states).max(1)[0]
-            target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
+            if self.use_ddqn:
+                # Double DQN: online net selects action, target net evaluates Q value.
+                # Decoupling reduces overestimation bias present in vanilla DQN.
+                next_actions  = self.q_net(next_states).argmax(1, keepdim=True)
+                next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)
+            else:
+                next_q_values = self.target_net(next_states).max(1)[0]
 
-        loss = nn.functional.mse_loss(q_values, target_q_values)
+            # Multi-step: discount over n steps since rewards already accumulates n-step return.
+            # When use_multistep=False, n_step=1 so gamma^1 = gamma (vanilla behavior).
+            gamma_n         = self.gamma ** self.n_step
+            target_q_values = rewards + gamma_n * next_q_values * (1 - dones)
+
+        td_errors = q_values - target_q_values  # shape: (batch_size,)
+
+        if self.use_per:
+            # PER weighted loss: IS weights correct the bias from non-uniform sampling
+            loss = (per_weights * td_errors ** 2).mean()
+            # Update SumTree priorities with latest TD errors
+            self.memory.update_priorities(per_indices, td_errors.detach().abs().cpu().numpy())
+        else:
+            loss = nn.functional.mse_loss(q_values, target_q_values)
+
         self.optimizer.zero_grad()
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), float('inf'))
@@ -452,6 +625,13 @@ if __name__ == "__main__":
     parser.add_argument("--env", type=str, default="CartPole-v1")
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
+    # Task 3 enhancement flags — toggle each technique independently for ablation study
+    parser.add_argument("--use-ddqn",      action="store_true", help="Enable Double DQN")
+    parser.add_argument("--use-per",       action="store_true", help="Enable Prioritized Experience Replay")
+    parser.add_argument("--use-multistep", action="store_true", help="Enable n-step return (requires --num-envs > 1)")
+    parser.add_argument("--n-step",        type=int,   default=3,   help="Steps for multi-step return")
+    parser.add_argument("--per-alpha",     type=float, default=0.6, help="PER prioritization exponent")
+    parser.add_argument("--per-beta",      type=float, default=0.4, help="PER IS weight correction exponent")
     args = parser.parse_args()
 
     random.seed(args.seed)

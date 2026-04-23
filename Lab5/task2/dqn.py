@@ -144,6 +144,7 @@ class DQNAgent:
         self.env = gym.make(env_name, render_mode="rgb_array")
         self.test_env = gym.make(env_name, render_mode="rgb_array")
         self.num_actions = self.env.action_space.n
+        self.num_envs = args.num_envs if args is not None else 1
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", self.device)
@@ -180,6 +181,19 @@ class DQNAgent:
         os.makedirs(self.save_dir, exist_ok=True)
         self.memory = deque(maxlen=args.memory_size)
 
+        if self.num_envs > 1:
+            import functools
+            self.vec_env = gym.vector.AsyncVectorEnv(
+                [functools.partial(gym.make, env_name,
+                                   render_mode="rgb_array",
+                                   max_episode_steps=self.max_episode_steps)
+                 for _ in range(self.num_envs)]
+            )
+            if self.is_atari:
+                self.vec_preprocessors = [AtariPreprocessor() for _ in range(self.num_envs)]
+            else:
+                self.vec_preprocessors = [CartPolePreprocessor() for _ in range(self.num_envs)]
+
     def select_action(self, state):
         if random.random() < self.epsilon:
             return random.randint(0, self.num_actions - 1)
@@ -188,7 +202,23 @@ class DQNAgent:
             q_values = self.q_net(state_tensor)
         return q_values.argmax().item()
 
+    def select_action_batch(self, states_list):
+        N = len(states_list)
+        explore = [random.random() < self.epsilon for _ in range(N)]
+        if all(explore):
+            return [random.randint(0, self.num_actions - 1) for _ in range(N)]
+        batch = torch.from_numpy(np.stack(states_list)).float().to(self.device)
+        with torch.no_grad():
+            greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
+        return [
+            random.randint(0, self.num_actions - 1) if explore[i] else greedy_actions[i]
+            for i in range(N)
+        ]
+
     def run(self, episodes=1000):
+        if self.num_envs > 1: # 開啟多核心運算模式
+            return self.run_vectorized(episodes)
+
         for ep in range(episodes):
             obs, _ = self.env.reset()
 
@@ -257,6 +287,82 @@ class DQNAgent:
                     "Eval Reward": eval_reward
                 })
 
+    def run_vectorized(self, episodes=1000):
+        '''
+        使用 run_vectorized 去支援多核心 CPU 運算，讓訓練速度加快
+        '''
+        N = self.num_envs
+        print(f"=== {N} CORES TRAINING START===")
+        obs_batch, _ = self.vec_env.reset() # 重置多個環境
+        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] # 初始化多環境狀態
+        ep_rewards = np.zeros(N, dtype=np.float32) # 初始化多個環境獎勵
+        ep_count = 0 # 初始化 episode 計數
+
+        while ep_count < episodes: 
+            actions = np.array(self.select_action_batch(states), dtype=np.int64)
+            next_obs_batch, rewards, terminateds, truncateds, infos = self.vec_env.step(actions)
+            self.env_count += N
+
+            for i in range(N): 
+                done = bool(terminateds[i]) or bool(truncateds[i])
+
+                if done:
+                    next_state = self.vec_preprocessors[i].reset(next_obs_batch[i])
+                else:
+                    next_state = self.vec_preprocessors[i].step(next_obs_batch[i])
+
+                self.memory.append((states[i], int(actions[i]), float(rewards[i]), next_state, done))
+                ep_rewards[i] += rewards[i]
+
+                if done:
+                    total_reward = float(ep_rewards[i])
+                    ep_rewards[i] = 0.0
+
+                    print(f"[Eval] Ep: {ep_count} Total Reward: {total_reward} SC: {self.env_count} UC: {self.train_count} Eps: {self.epsilon:.4f}")
+                    wandb.log({
+                        "Episode": ep_count,
+                        "Total Reward": total_reward,
+                        "Env Step Count": self.env_count,
+                        "Update Count": self.train_count,
+                        "Epsilon": self.epsilon
+                    })
+
+                    if ep_count % 100 == 0:
+                        model_path = os.path.join(self.save_dir, f"model_ep{ep_count}.pt")
+                        torch.save(self.q_net.state_dict(), model_path)
+                        print(f"Saved model checkpoint to {model_path}")
+
+                    if ep_count % 20 == 0:
+                        eval_reward = self.evaluate()
+                        if eval_reward > self.best_reward:
+                            self.best_reward = eval_reward
+                            model_path = os.path.join(self.save_dir, "best_model.pt")
+                            torch.save(self.q_net.state_dict(), model_path)
+                            print(f"Saved new best model to {model_path} with reward {eval_reward}")
+                        print(f"[TrueEval] Ep: {ep_count} Eval Reward: {eval_reward:.2f} SC: {self.env_count} UC: {self.train_count}")
+                        wandb.log({
+                            "Env Step Count": self.env_count,
+                            "Update Count": self.train_count,
+                            "Eval Reward": eval_reward
+                        })
+
+                    ep_count += 1
+                    if ep_count >= episodes:
+                        break
+
+                states[i] = next_state
+
+            for _ in range(self.train_per_step):
+                self.train()
+
+            if self.env_count % 1000 < N:
+                print(f"[Collect] SC: {self.env_count} UC: {self.train_count} Eps: {self.epsilon:.4f}")
+                wandb.log({
+                    "Env Step Count": self.env_count,
+                    "Update Count": self.train_count,
+                    "Epsilon": self.epsilon
+                })
+
     def evaluate(self):
         obs, _ = self.test_env.reset()
         state = self.preprocessor.reset(obs)
@@ -309,6 +415,7 @@ class DQNAgent:
         loss = nn.functional.mse_loss(q_values, target_q_values)
         self.optimizer.zero_grad()
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), float('inf'))
         self.optimizer.step()
         ########## END OF YOUR CODE ##########
 
@@ -317,10 +424,16 @@ class DQNAgent:
 
         # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
-            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f}")
+            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f}")
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--save-dir", type=str, default="./results")
     parser.add_argument("--wandb-run-name", type=str, default="cartpole-run")
@@ -337,6 +450,7 @@ if __name__ == "__main__":
     parser.add_argument("--train-per-step", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=3000)
     parser.add_argument("--env", type=str, default="CartPole-v1")
+    parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
