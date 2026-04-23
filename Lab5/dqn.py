@@ -548,6 +548,10 @@ class DQNAgent:
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         self.train_count += 1
+
+        # PER β annealing: linearly increase from 0.4 → 1.0 over 600k env steps
+        if self.use_per:
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
