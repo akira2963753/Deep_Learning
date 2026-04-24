@@ -78,18 +78,30 @@ class DQN(nn.Module):
 
 class AtariPreprocessor:
     """
-        Preprocesing the state input of DQN for Atari
-    """    
+        Preprocesing the state input of DQN for Atari.
+        Applies element-wise max over last 2 raw frames (DeepMind standard)
+        to handle sprite flickering, then grayscale + resize to 84x84.
+    """
     def __init__(self, frame_stack=4):
         self.frame_stack = frame_stack
         self.frames = deque(maxlen=frame_stack)
+        self.last_raw_obs = None
+
+    def _gray_resize(self, obs):
+        gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
+        return cv2.resize(gray, (84, 84), interpolation=cv2.INTER_AREA)
 
     def preprocess(self, obs):
-        gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
-        resized = cv2.resize(gray, (84, 84), interpolation=cv2.INTER_AREA)
-        return resized
+        # Max-pool with previous raw frame to remove Atari sprite flicker
+        if self.last_raw_obs is not None:
+            maxed = np.maximum(obs, self.last_raw_obs)
+        else:
+            maxed = obs
+        self.last_raw_obs = obs
+        return self._gray_resize(maxed)
 
     def reset(self, obs):
+        self.last_raw_obs = None
         frame = self.preprocess(obs)
         self.frames = deque([frame for _ in range(self.frame_stack)], maxlen=self.frame_stack)
         return np.stack(self.frames, axis=0)
@@ -255,7 +267,7 @@ class DQNAgent:
         self.q_net.apply(init_weights)
         self.target_net = DQN(input_shape, self.num_actions).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr)
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4)
 
         self.batch_size = args.batch_size
         self.gamma = args.discount_factor
@@ -341,6 +353,13 @@ class DQNAgent:
         for ep in range(episodes):
             obs, _ = self.env.reset()
 
+            # NoopReset: random 0~30 noop actions on initial frame for state diversity (Atari only)
+            if self.is_atari:
+                for _ in range(random.randint(0, 30)):
+                    obs, _, terminated, truncated, _ = self.env.step(0)
+                    if terminated or truncated:
+                        obs, _ = self.env.reset()
+
             state = self.preprocessor.reset(obs)
             done = False
             total_reward = 0
@@ -413,6 +432,14 @@ class DQNAgent:
         N = self.num_envs
         print(f"=== {N} CORES TRAINING START===")
         obs_batch, _ = self.vec_env.reset() # 重置多個環境
+
+        # NoopReset: apply random noop actions across the batch for initial state diversity (Atari only)
+        if self.is_atari:
+            num_noops = random.randint(0, 30)
+            noop_actions = np.zeros(N, dtype=np.int64)
+            for _ in range(num_noops):
+                obs_batch, _, _, _, _ = self.vec_env.step(noop_actions)
+
         states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] # 初始化多環境狀態
         ep_rewards = np.zeros(N, dtype=np.float32) # 初始化多個環境獎勵
         ep_count = 0 # 初始化 episode 計數
@@ -552,7 +579,7 @@ class DQNAgent:
         # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
         # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
         if self.use_per:
-            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 2_500_000))
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
@@ -627,11 +654,11 @@ if __name__ == "__main__":
     parser.add_argument("--wandb-run-name", type=str, default="cartpole-run")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--memory-size", type=int, default=100000)
-    parser.add_argument("--lr", type=float, default=0.0001)
+    parser.add_argument("--lr", type=float, default=0.00025)
     parser.add_argument("--discount-factor", type=float, default=0.99)
     parser.add_argument("--epsilon-start", type=float, default=1.0)
-    parser.add_argument("--epsilon-decay", type=float, default=0.999999)
-    parser.add_argument("--epsilon-min", type=float, default=0.05)
+    parser.add_argument("--epsilon-decay", type=float, default=0.9999925)
+    parser.add_argument("--epsilon-min", type=float, default=0.01)
     parser.add_argument("--target-update-frequency", type=int, default=1000)
     parser.add_argument("--replay-start-size", type=int, default=50000)
     parser.add_argument("--max-episode-steps", type=int, default=10000)
