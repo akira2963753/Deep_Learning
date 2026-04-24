@@ -549,9 +549,10 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
         self.train_count += 1
 
-        # PER β annealing: linearly increase from 0.4 → 1.0 over 600k env steps
+        # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
+        # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
         if self.use_per:
-            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 2_500_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
