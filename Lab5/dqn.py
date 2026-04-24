@@ -36,8 +36,6 @@ class DQN(nn.Module):
     def __init__(self, input_shape, num_actions):
         super(DQN, self).__init__()
         ########## YOUR CODE HERE (5~10 lines) ##########
-        # Dueling DQN: Q(s,a) = V(s) + A(s,a) - mean_a A(s,a)
-        # Separates state-value from action-advantage for better sample efficiency.
         self.is_atari = (len(input_shape) == 3)
 
         if self.is_atari: # For Task 2
@@ -54,39 +52,28 @@ class DQN(nn.Module):
             with torch.no_grad():
                 dummy = torch.zeros(1, *input_shape)
                 conv_out_size = self.conv(dummy).shape[1]
-            # Dueling heads: separate V(s) and A(s,a) streams
-            self.value_stream = nn.Sequential(
-                nn.Linear(conv_out_size, 512),
-                nn.ReLU(),
-                nn.Linear(512, 1),
-            )
-            self.advantage_stream = nn.Sequential(
+            self.fc = nn.Sequential(
                 nn.Linear(conv_out_size, 512),
                 nn.ReLU(),
                 nn.Linear(512, num_actions),
             )
         else: # For Task 1
             in_features = input_shape[0]
-            self.feature = nn.Sequential(
+            self.network = nn.Sequential(
                 nn.Linear(in_features, 128),
                 nn.ReLU(),
                 nn.Linear(128, 128),
                 nn.ReLU(),
+                nn.Linear(128, num_actions),
             )
-            self.value_stream = nn.Linear(128, 1)
-            self.advantage_stream = nn.Linear(128, num_actions)
         ########## END OF YOUR CODE ##########
 
     def forward(self, x):
         if self.is_atari:
             x = x / 255.0
-            features = self.conv(x)
+            return self.fc(self.conv(x))
         else:
-            features = self.feature(x)
-        value     = self.value_stream(features)
-        advantage = self.advantage_stream(features)
-        # Combine: Q = V + (A - mean(A)) — subtracting mean resolves identifiability
-        return value + advantage - advantage.mean(dim=1, keepdim=True)
+            return self.network(x)
 
 
 class AtariPreprocessor:
