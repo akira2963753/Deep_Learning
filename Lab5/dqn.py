@@ -634,8 +634,12 @@ class DQNAgent:
         self.optimizer.step()
         ########## END OF YOUR CODE ##########
 
-        if self.train_count % self.target_update_frequency == 0:
-            self.target_net.load_state_dict(self.q_net.state_dict())
+        # Soft target update (Polyak averaging): smoother than hard copy every N steps.
+        # tau=0.005 → effective lag ~200 train steps, removes Q-function jumps that cause eval dips.
+        tau = 0.005
+        with torch.no_grad():
+            for tp, p in zip(self.target_net.parameters(), self.q_net.parameters()):
+                tp.data.mul_(1 - tau).add_(p.data, alpha=tau)
 
         # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
