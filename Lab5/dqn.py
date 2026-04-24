@@ -16,6 +16,7 @@ from collections import deque
 import wandb
 import argparse
 import time
+# import torch_directml # 如果要使用 AMD GPU 來進行訓練 
 
 gym.register_envs(ale_py)
 
@@ -256,6 +257,8 @@ class DQNAgent:
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", self.device)
+        # self.device = torch_directml.device()
+        # print(f"Using DirectML device: {self.device}") # 如果要使用 AMD GPU 來進行訓練 
 
         self.is_atari = "ALE/" in env_name
         if self.is_atari: # For Task 2
