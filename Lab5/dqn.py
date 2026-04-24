@@ -603,7 +603,7 @@ class DQNAgent:
 
         self.optimizer.zero_grad()
         loss.backward()
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), float('inf'))
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), 10.0)
         self.optimizer.step()
         ########## END OF YOUR CODE ##########
 
