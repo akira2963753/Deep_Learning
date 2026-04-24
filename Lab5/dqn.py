@@ -249,6 +249,10 @@ class DQNAgent:
         self.test_env = gym.make(env_name, render_mode="rgb_array")
         self.num_actions = self.env.action_space.n
         self.num_envs = args.num_envs if args is not None else 1
+        # Seed for the very first env reset — controls gym env's internal RNG.
+        # Subsequent resets use env's evolving RNG (so episodes keep diversity).
+        self.seed = args.seed if (args is not None and hasattr(args, 'seed')) else None
+        self._seeded_single = False  # track whether run()'s single env has been seeded yet
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", self.device)
@@ -351,14 +355,19 @@ class DQNAgent:
             return self.run_vectorized(episodes)
 
         for ep in range(episodes):
-            obs, _ = self.env.reset()
+            # Seed the env only on the first reset of training; later resets use evolving RNG
+            if not self._seeded_single and self.seed is not None:
+                obs, _ = self.env.reset(seed=self.seed)
+                self._seeded_single = True
+            else:
+                obs, _ = self.env.reset()
 
             # NoopReset: random 0~30 noop actions on initial frame for state diversity (Atari only)
             if self.is_atari:
                 for _ in range(random.randint(0, 30)):
                     obs, _, terminated, truncated, _ = self.env.step(0)
                     if terminated or truncated:
-                        obs, _ = self.env.reset()
+                        obs, _ = self.env.reset()  # no seed — keep episode diversity
 
             state = self.preprocessor.reset(obs)
             done = False
@@ -431,7 +440,12 @@ class DQNAgent:
         '''
         N = self.num_envs
         print(f"=== {N} CORES TRAINING START===")
-        obs_batch, _ = self.vec_env.reset() # 重置多個環境
+        # Seed the vector env on its only reset — AsyncVectorEnv assigns seed, seed+1, ..., seed+N-1
+        # to each sub-env internally, so each worker has a distinct but reproducible RNG.
+        if self.seed is not None:
+            obs_batch, _ = self.vec_env.reset(seed=self.seed)
+        else:
+            obs_batch, _ = self.vec_env.reset()
 
         # NoopReset: apply random noop actions across the batch for initial state diversity (Atari only)
         if self.is_atari:
