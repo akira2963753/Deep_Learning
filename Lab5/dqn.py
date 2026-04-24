@@ -563,7 +563,7 @@ class DQNAgent:
                 })
 
     def evaluate(self):
-        obs, _ = self.test_env.reset()
+        obs, _ = self.test_env.reset(seed=12345)
         state = self.preprocessor.reset(obs)
         done = False
         total_reward = 0
