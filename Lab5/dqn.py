@@ -39,7 +39,7 @@ class DQN(nn.Module):
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.is_atari = (len(input_shape) == 3)
 
-        if self.is_atari: # For Task 2
+        if self.is_atari: # For Task 2 and Task3
             in_channels = input_shape[0]
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
@@ -53,13 +53,7 @@ class DQN(nn.Module):
             with torch.no_grad():
                 dummy = torch.zeros(1, *input_shape)
                 conv_out_size = self.conv(dummy).shape[1]
-            # Dueling DQN: 共享 conv backbone，分流成 Value 與 Advantage
-            self.value_stream = nn.Sequential(
-                nn.Linear(conv_out_size, 512),
-                nn.ReLU(),
-                nn.Linear(512, 1),
-            )
-            self.advantage_stream = nn.Sequential(
+            self.fc = nn.Sequential(
                 nn.Linear(conv_out_size, 512),
                 nn.ReLU(),
                 nn.Linear(512, num_actions),
@@ -78,12 +72,7 @@ class DQN(nn.Module):
     def forward(self, x):
         if self.is_atari:
             x = x / 255.0
-            feat = self.conv(x)
-            v = self.value_stream(feat)             # (B, 1)
-            a = self.advantage_stream(feat)         # (B, num_actions)
-            # Dueling aggregator: Q(s,a) = V(s) + (A(s,a) - mean_a A(s,a))
-            q = v + (a - a.mean(dim=1, keepdim=True))
-            return q
+            return self.fc(self.conv(x))
         else:
             return self.network(x)
 
@@ -620,7 +609,8 @@ class DQNAgent:
         # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
         # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
         if self.use_per:
-            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
+            total_step = 600_000 # 退火的 Total Step 設 600K, 因為這個作業的滿分是 600K 就要到 19 分
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / total_step))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
