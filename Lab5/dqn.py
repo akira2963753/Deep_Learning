@@ -632,8 +632,8 @@ class DQNAgent:
 
         # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
         # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
-        # if self.use_per:
-        #    self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
+        if self.use_per:
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch.
