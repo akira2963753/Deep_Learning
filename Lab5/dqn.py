@@ -80,23 +80,29 @@ class DQN(nn.Module):
 class AtariPreprocessor:
     """
         Preprocesing the state input of DQN for Atari.
-        ALE/*-v5 envs already apply frameskip=4 with internal max-pool over the
-        last 2 of those 4 frames, so we only do grayscale + resize here.
-        Adding another max-pool on top would smear motion across ~8 raw frames
-        and degrade fast-moving objects (e.g. the Pong ball).
+        Applies element-wise max over last 2 raw frames (DeepMind standard)
+        to handle sprite flickering, then grayscale + resize to 84x84.
     """
     def __init__(self, frame_stack=4):
         self.frame_stack = frame_stack
         self.frames = deque(maxlen=frame_stack)
+        self.last_raw_obs = None
 
     def _gray_resize(self, obs):
         gray = cv2.cvtColor(obs, cv2.COLOR_RGB2GRAY)
         return cv2.resize(gray, (84, 84), interpolation=cv2.INTER_AREA)
 
     def preprocess(self, obs):
-        return self._gray_resize(obs)
+        # Max-pool with previous raw frame to remove Atari sprite flicker
+        if self.last_raw_obs is not None:
+            maxed = np.maximum(obs, self.last_raw_obs)
+        else:
+            maxed = obs
+        self.last_raw_obs = obs
+        return self._gray_resize(maxed)
 
     def reset(self, obs):
+        self.last_raw_obs = None
         frame = self.preprocess(obs)
         self.frames = deque([frame for _ in range(self.frame_stack)], maxlen=self.frame_stack)
         return np.stack(self.frames, axis=0)
