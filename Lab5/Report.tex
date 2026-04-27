@@ -1,0 +1,226 @@
+\documentclass[12pt,a4paper]{report}
+
+% Packages — compile with pdfLaTeX
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[lining]{ebgaramond}
+\usepackage[cmintegrals,cmbraces]{newtxmath}
+\usepackage{microtype}
+\usepackage{geometry}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{pdflscape}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{makecell}
+\usepackage{siunitx}
+\graphicspath{{./}}
+
+% Page layout
+\geometry{
+    left=1.8cm,
+    right=1.8cm,
+    top=2.2cm,
+    bottom=2.2cm
+}
+
+% Color definitions
+\definecolor{crimson}{RGB}{153, 0, 0}
+\definecolor{darkblue}{RGB}{0, 0, 153}
+
+% Hyperlink settings
+\hypersetup{
+    colorlinks=true,
+    linkcolor=crimson,
+    urlcolor=crimson,
+    citecolor=crimson
+}
+
+% Allow line breaks at slashes to prevent overfull hbox
+\tolerance=2000
+\emergencystretch=2em
+
+% Chapter/section title formatting
+\usepackage{titlesec}
+\titleformat{\chapter}{\normalfont\huge\bfseries}{}{0pt}{}[\vspace{0.3em}]
+\titlespacing*{\chapter}{0pt}{0pt}{14pt}
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{1em}{}
+
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\pagestyle{plain}
+
+% ─────────────────────────────────────────────
+%  Cover Page
+% ─────────────────────────────────────────────
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+
+{\fontsize{28}{34}\selectfont\bfseries Deep Learning\par}
+\vspace{0.6em}
+{\fontsize{20}{26}\selectfont\bfseries Lab 5 \par}
+\vspace{0.4em}
+{\fontsize{16}{22}\selectfont\bfseries Value-Based Reinforcement Learning \par}
+
+\vspace{1.5cm}
+\textcolor{crimson}{\rule{0.6\linewidth}{1.2pt}}
+\vspace{1.5cm}
+
+{\large\bfseries Student ID}\par
+\vspace{0.4em}
+{\large M11407439}\par
+
+\vspace{0.8em}
+
+{\large\bfseries Name}\par
+\vspace{0.4em}
+{\large MING-HONG, LIN}\par
+
+\vspace{0.8cm}
+
+{\large\bfseries School}\par
+\vspace{0.4em}
+{\large National Yang Ming Chiao Tung University}\par
+
+\vfill
+
+\textcolor{crimson}{\rule{0.6\linewidth}{0.6pt}}\par
+\vspace{0.5em}
+{\small Due Date: 2026/05/05}
+
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\chapter{Introduction}
+
+\chapter{Implementation}
+\section{Task 1: DQN on CartPole-v1}
+
+\subsection{Algorithm Overview}
+
+Task~1 implements a \textbf{Deep Q-Network (DQN)} on the CartPole-v1 environment.
+The core idea is to approximate the action-value function $Q(s, a;\,\theta)$ with a deep neural
+network and learn the optimal policy by minimizing the Bellman error.
+DQN introduces three key mechanisms to stabilize training when combining Q-learning with
+neural networks:
+
+\begin{itemize}[leftmargin=1.8em]
+  \item \textbf{Experience Replay}: At every time step, the transition
+        $(s,\,a,\,r,\,s',\,\text{done})$ is stored in a fixed-capacity replay buffer
+        (implemented as a \texttt{deque}).
+        During training, a mini-batch is sampled uniformly at random, breaking the temporal
+        correlation between consecutive samples and improving sample efficiency.
+
+  \item \textbf{Target Network}: A separate network $Q_{\text{target}}(s,a;\,\theta^-)$ with
+        frozen parameters is maintained solely for computing Bellman targets.
+        Its weights are synchronized from the online network only every $N$ training steps
+        (hard copy), preventing the training target from shifting continuously with each
+        gradient update and thereby improving convergence stability.
+
+  \item \textbf{$\varepsilon$-greedy Exploration}: With probability $\varepsilon$ the agent
+        selects a random action (exploration); with probability $1-\varepsilon$ it selects the
+        action with the highest Q value (exploitation).
+        $\varepsilon$ decays exponentially during training so the policy gradually shifts from
+        exploration toward exploitation.
+\end{itemize}
+
+The training loss is the mean squared TD error:
+
+\begin{equation}
+  \mathcal{L}(\theta) \;=\;
+  \mathbb{E}_{(s,a,r,s')\sim\mathcal{D}}\!\left[
+    \Bigl(r + \gamma\,\max_{a'} Q_{\text{target}}(s',a';\,\theta^-) - Q(s,a;\,\theta)\Bigr)^2
+  \right]
+\end{equation}
+
+\subsection{Implementation Details}
+
+\subsubsection*{Network Architecture}
+
+The state space of CartPole-v1 is a 4-dimensional continuous vector
+(cart position, cart velocity, pole angle, pole angular velocity).
+A fully connected \textbf{MLP} is used as the Q-network, with the output layer
+producing Q-values for each of the two possible actions:
+
+\[
+  \text{Linear}(4\!\to\!128) \xrightarrow{\text{ReLU}}
+  \text{Linear}(128\!\to\!128) \xrightarrow{\text{ReLU}}
+  \text{Linear}(128\!\to\!2)
+\]
+
+All weights are initialized with Kaiming Uniform (\texttt{nonlinearity=`relu'}),
+and biases are set to zero.
+
+\subsubsection*{Replay Buffer}
+
+A \texttt{deque(maxlen=100{,}000)} is used as a uniform replay buffer.
+One transition $(s, a, r, s', \text{done})$ is appended per environment step.
+At each training step, a mini-batch of size 32 is drawn via \texttt{random.sample}
+to eliminate temporal correlations.
+
+\subsubsection*{$\varepsilon$-greedy Decay}
+
+$\varepsilon$ starts at $1.0$ (pure exploration) and is multiplied by a fixed decay factor
+after every call to \texttt{train()}:
+
+\[
+  \varepsilon \;\leftarrow\; \varepsilon \times 0.9999925
+\]
+
+Decay stops once $\varepsilon$ reaches $\varepsilon_{\min} = 0.01$,
+retaining a small amount of exploration throughout training.
+
+\subsubsection*{Loss Computation and Gradient Update}
+
+\begin{enumerate}[leftmargin=2em]
+  \item Compute the current Q-value from the online network:
+        $Q(s,a;\,\theta)$ via \texttt{gather} on the action dimension.
+  \item Compute the TD target with the target network (inside \texttt{torch.no\_grad()}):
+        $y = r + \gamma \cdot \max_{a'} Q_{\text{target}}(s',a';\,\theta^-) \cdot (1 - \text{done})$,
+        where $\gamma = 0.99$.
+  \item Compute the loss:
+        $\mathcal{L} = \texttt{nn.functional.mse\_loss}(Q(s,a;\,\theta),\; y)$.
+  \item Clip gradients (\texttt{clip\_grad\_norm\_} $\leq 10.0$) and update parameters
+        with the Adam optimizer ($\text{lr} = 2.5 \times 10^{-4}$).
+\end{enumerate}
+
+\subsubsection*{Target Network Synchronization}
+
+A \textbf{hard update} strategy is adopted: every
+\texttt{target\_update\_frequency} $= 1{,}000$ training steps,
+all parameters of the online network are copied directly to the target network via
+\texttt{load\_state\_dict}.
+The target network parameters remain frozen between synchronizations.
+
+\subsubsection*{Replay Start Size}
+
+Training does not begin until the replay buffer contains at least $50{,}000$ transitions.
+This warm-up phase ensures sufficient sample diversity in the early mini-batches
+and prevents the network from overfitting to a narrow initial distribution of experiences.
+
+\section{Task 2}
+\section{Task 3}
+\section{Question Answering}
+
+\chapter{Analysis and Discussions}
+
+\chapter{Evaluation Results}
+
+\chapter{Bonus}
+
+
+\end{document}

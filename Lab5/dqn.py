@@ -391,7 +391,7 @@ class DQNAgent:
         ]
 
     def run(self, episodes=1000):
-        if self.num_envs > 1: # 開啟多核心運算模式
+        if self.num_envs > 1:
             return self.run_vectorized(episodes)
 
         for ep in range(episodes):
@@ -494,9 +494,10 @@ class DQNAgent:
             for _ in range(num_noops):
                 obs_batch, _, _, _, _ = self.vec_env.step(noop_actions)
 
-        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] # 初始化多環境狀態
-        ep_rewards = np.zeros(N, dtype=np.float32) # 初始化多個環境獎勵
-        ep_count = 0 # 初始化 episode 計數
+        # Initialization
+        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] 
+        ep_rewards = np.zeros(N, dtype=np.float32) 
+        ep_count = 0 
 
         while ep_count < episodes: 
             actions = np.array(self.select_action_batch(states), dtype=np.int64)
