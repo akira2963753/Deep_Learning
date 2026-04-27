@@ -180,20 +180,37 @@ class PrioritizedReplayBuffer:
     """
         Prioritizing the samples in the replay memory by the Bellman error
         See the paper (Schaul et al., 2016) at https://arxiv.org/abs/1511.05952
+
+        GPU-native storage: states/next_states/actions/rewards/dones live as
+        pre-allocated GPU tensors. Sampling becomes pure GPU index_select,
+        eliminating the per-batch CPU→GPU transfer bottleneck.
     """
-    def __init__(self, capacity, alpha=0.6, beta=0.4):
+    def __init__(self, capacity, alpha=0.6, beta=0.4,
+                 state_shape=(4, 84, 84), state_dtype=torch.uint8, device=None):
         self.capacity = capacity
         self.alpha = alpha
         self.beta = beta
-        self.buffer = [None] * capacity  # fixed-size list for O(1) indexed access
-        self.tree   = SumTree(capacity)  # O(log N) priority sampling & update
-        self.size   = 0                  # current number of valid transitions
+        self.device = device if device is not None else (
+            torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        self.state_dtype = state_dtype
+
+        # Pre-allocated GPU storage. uint8 for Atari frames is a 4x mem win
+        # vs float32; conversion to float happens at sample time.
+        self.states      = torch.zeros((capacity, *state_shape), dtype=state_dtype, device=self.device)
+        self.next_states = torch.zeros((capacity, *state_shape), dtype=state_dtype, device=self.device)
+        self.actions     = torch.zeros(capacity, dtype=torch.int64,  device=self.device)
+        self.rewards     = torch.zeros(capacity, dtype=torch.float32, device=self.device)
+        self.dones       = torch.zeros(capacity, dtype=torch.float32, device=self.device)
+
+        self.tree = SumTree(capacity)
+        self.size = 0
 
     def __len__(self):
         return self.size
 
     def add(self, transition, error):
         ########## YOUR CODE HERE (for Task 3) ##########
+        s, a, r, ns, d = transition
         # New transitions always receive max existing priority,
         # ensuring they are sampled at least once before their TD error is known.
         max_priority = self.tree.tree[self.tree.capacity - 1:
@@ -201,7 +218,12 @@ class PrioritizedReplayBuffer:
                        if self.size > 0 else 1.0
 
         leaf_pos = self.tree.add(max_priority)  # write to SumTree, get leaf index
-        self.buffer[leaf_pos] = transition       # store transition at same index
+        # Single H2D copy per field. For (4,84,84) uint8 this is ~28KB — cheap.
+        self.states[leaf_pos]      = torch.from_numpy(np.asarray(s)).to(self.state_dtype)
+        self.next_states[leaf_pos] = torch.from_numpy(np.asarray(ns)).to(self.state_dtype)
+        self.actions[leaf_pos]     = int(a)
+        self.rewards[leaf_pos]     = float(r)
+        self.dones[leaf_pos]       = float(d)
         self.size = min(self.size + 1, self.capacity)
         ########## END OF YOUR CODE (for Task 3) ##########
         return
@@ -216,8 +238,8 @@ class PrioritizedReplayBuffer:
         for i in range(batch_size):
             value = random.uniform(segment * i, segment * (i + 1))
             leaf_idx, priority = self.tree.get(value)
-            # Guard: resample if we land on an unfilled slot (buffer=None) or zero priority
-            while self.buffer[leaf_idx] is None or priority <= 0:
+            # Guard: resample if we land on an unfilled slot or zero priority
+            while leaf_idx >= self.size or priority <= 0:
                 value = random.uniform(0, self.tree.total)
                 leaf_idx, priority = self.tree.get(value)
             indices.append(leaf_idx)
@@ -228,9 +250,18 @@ class PrioritizedReplayBuffer:
         weights = (self.size * probs) ** (-self.beta)
         weights /= weights.max()
 
-        batch = [self.buffer[i] for i in indices]
+        idx_t = torch.as_tensor(indices, dtype=torch.long, device=self.device)
+        # Float conversion happens here on GPU — much cheaper than transferring floats.
+        states      = self.states.index_select(0, idx_t).float()
+        next_states = self.next_states.index_select(0, idx_t).float()
+        actions     = self.actions.index_select(0, idx_t)
+        rewards     = self.rewards.index_select(0, idx_t)
+        dones       = self.dones.index_select(0, idx_t)
+        weights_t   = torch.from_numpy(weights.astype(np.float32)).to(self.device)
+
+        batch = (states, actions, rewards, next_states, dones)
         ########## END OF YOUR CODE (for Task 3) ##########
-        return batch, indices, weights.astype(np.float32)
+        return batch, indices, weights_t
 
     def update_priorities(self, indices, errors):
         ########## YOUR CODE HERE (for Task 3) ##########
@@ -302,7 +333,13 @@ class DQNAgent:
         if self.use_per:
             per_alpha = args.per_alpha if hasattr(args, 'per_alpha') else 0.6
             per_beta  = args.per_beta  if hasattr(args, 'per_beta')  else 0.4
-            self.memory = PrioritizedReplayBuffer(args.memory_size, per_alpha, per_beta)
+            # GPU-native PER: store frames as uint8 to fit 500k Atari transitions
+            # in ~28GB VRAM (vs ~112GB as float32). CartPole stays float32.
+            state_dtype = torch.uint8 if self.is_atari else torch.float32
+            self.memory = PrioritizedReplayBuffer(
+                args.memory_size, per_alpha, per_beta,
+                state_shape=input_shape, state_dtype=state_dtype, device=self.device,
+            )
         else:
             self.memory = deque(maxlen=args.memory_size)
 
@@ -599,24 +636,23 @@ class DQNAgent:
             self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
-        # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only
+        # Sample a mini-batch.
+        # PER: GPU-native buffer returns tensors already on device — no transfer needed.
+        # Uniform: deque of CPU tuples — needs the classic stack+transfer path.
         if self.use_per:
-            batch, per_indices, per_weights = self.memory.sample(self.batch_size)
-            per_weights = torch.tensor(per_weights, dtype=torch.float32).to(self.device)
+            (states, actions, rewards, next_states, dones), per_indices, per_weights = \
+                self.memory.sample(self.batch_size)
         else:
             batch = random.sample(self.memory, self.batch_size)
             per_indices, per_weights = None, None
-        states, actions, rewards, next_states, dones = zip(*batch)
+            states_, actions_, rewards_, next_states_, dones_ = zip(*batch)
+            states      = torch.from_numpy(np.stack(states_)).to(self.device).float()
+            next_states = torch.from_numpy(np.stack(next_states_)).to(self.device).float()
+            actions     = torch.tensor(actions_, dtype=torch.int64).to(self.device)
+            rewards     = torch.tensor(rewards_, dtype=torch.float32).to(self.device)
+            dones       = torch.tensor(dones_, dtype=torch.float32).to(self.device)
         ########## END OF YOUR CODE ##########
 
-        # Convert the states, actions, rewards, next_states, and dones into torch tensors
-        # NOTE: Enable this part after you finish the mini-batch sampling
-        # Send as uint8 to GPU first, then convert to float32 on GPU (4x less CPU memory alloc)
-        states = torch.from_numpy(np.array(states)).to(self.device).float()
-        next_states = torch.from_numpy(np.array(next_states)).to(self.device).float()
-        actions = torch.tensor(actions, dtype=torch.int64).to(self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        dones = torch.tensor(dones, dtype=torch.float32).to(self.device)
         q_values = self.q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
         ########## YOUR CODE HERE (~10 lines) ##########
@@ -698,6 +734,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
+        torch.backends.cudnn.benchmark = True
 
     if "ALE/" in args.env:
         project_name = "DLP-Lab5-DQN-" + args.env.split("/")[-1].split("-")[0]
