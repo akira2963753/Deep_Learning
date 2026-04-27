@@ -476,10 +476,10 @@ class DQNAgent:
 
     def run_vectorized(self, episodes=1000):
         '''
-        使用 run_vectorized 去支援多核心 CPU 運算，讓訓練速度加快
+        Use run_vectorized to support multi-core CPU operation, increasing the training speed.
         '''
         N = self.num_envs
-        print(f"=== {N} CORES TRAINING START===")
+        print(f"=== {N} MULTI-CORES TRAINING START===")
         # Seed the vector env on its only reset — AsyncVectorEnv assigns seed, seed+1, ..., seed+N-1
         # to each sub-env internally, so each worker has a distinct but reproducible RNG.
         if self.seed is not None:
