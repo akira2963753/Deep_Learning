@@ -16,7 +16,7 @@ from collections import deque
 import wandb
 import argparse
 import time
-# import torch_directml  # 如果要使用 AMD GPU 來進行訓練（CUDA 機器停用）
+# import torch_directml # 如果要使用 AMD GPU 來進行訓練 
 
 gym.register_envs(ale_py)
 
@@ -39,7 +39,7 @@ class DQN(nn.Module):
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.is_atari = (len(input_shape) == 3)
 
-        if self.is_atari: # For Task 2 and Task3
+        if self.is_atari: # For Task 2
             in_channels = input_shape[0]
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
@@ -255,19 +255,10 @@ class DQNAgent:
         self.seed = args.seed if (args is not None and hasattr(args, 'seed')) else None
         self._seeded_single = False  # track whether run()'s single env has been seeded yet
 
-        # Auto-select device (CUDA only; DirectML disabled)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.use_cuda = torch.cuda.is_available()
-        print(f"Using device: {self.device}")
-        # --- DirectML fallback (commented out for CUDA machine) ---
-        # if torch.cuda.is_available():
-        #     self.device = torch.device("cuda")
-        #     self.use_cuda = True
-        #     print(f"Using CUDA device: {self.device}")
-        # else:
-        #     self.device = torch_directml.device()
-        #     self.use_cuda = False
-        #     print(f"Using DirectML device: {self.device}")  # AMD GPU fallback
+        print("Using device:", self.device)
+        # self.device = torch_directml.device()
+        # print(f"Using DirectML device: {self.device}") # 如果要使用 AMD GPU 來進行訓練 
 
         self.is_atari = "ALE/" in env_name
         if self.is_atari: # For Task 2
@@ -283,11 +274,7 @@ class DQNAgent:
         self.q_net.apply(init_weights)
         self.target_net = DQN(input_shape, self.num_actions).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
-        # On CUDA use default fast path; on DirectML disable foreach/fused (lerp op not supported)
-        if self.use_cuda:
-            self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4)
-        else:
-            self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4, foreach=False, fused=False)
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4)
 
         self.batch_size = args.batch_size
         self.gamma = args.discount_factor
@@ -609,8 +596,7 @@ class DQNAgent:
         # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
         # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
         if self.use_per:
-            total_step = 600_000 # 退火的 Total Step 設 600K, 因為這個作業的滿分是 600K 就要到 19 分
-            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / total_step))
+            self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
        
         ########## YOUR CODE HERE (<5 lines) ##########
         # Sample a mini-batch — PER returns (batch, indices, IS weights); uniform returns batch only

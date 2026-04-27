@@ -220,9 +220,9 @@ def main():
             "--use-ddqn --use-per --use-multistep --n-step 3 "
             "--memory-size 200000 --replay-start-size 20000 "
             "--epsilon-decay 0.99996 --epsilon-min 0.01 "
-            "--target-update-frequency 2000 "
+            "--target-update-frequency 4000 "
             "--batch-size 32 --lr 0.00025 "
-            "--discount-factor 0.99 --max-episode-steps 10000"
+            "--discount-factor 0.99 --max-episode-steps 10000 --train-per-step 2 "
         ),
         help="Extra args passed to dqn.py (excluding --save-dir, --wandb-run-name, --episodes)",
     )
