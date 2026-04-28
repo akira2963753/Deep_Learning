@@ -634,7 +634,7 @@ class DQNAgent:
         # Two-stage LR decay tuned for the 600K milestone:
         #   < 500K : 2.5e-4   (fast learning)
         #   ≥ 500K : 1.5e-4   (lock in to dampen Q-value oscillation around optimum)
-        if self.env_count < 480_000:
+        if self.env_count < 500_000:
             target_lr = 2.5e-4
         else:
             target_lr = 1e-4
