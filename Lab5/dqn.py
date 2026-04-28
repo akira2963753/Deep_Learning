@@ -39,7 +39,7 @@ class DQN(nn.Module):
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.is_atari = (len(input_shape) == 3)
 
-        if self.is_atari: # For Task 2
+        if self.is_atari: # For Task 2, 3 
             in_channels = input_shape[0]
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
