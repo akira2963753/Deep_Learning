@@ -265,7 +265,7 @@ def main():
             "--env ALE/Pong-v5 "
             "--use-ddqn --use-per --use-multistep --n-step 3 "
             "--memory-size 200000 --replay-start-size 20000 "
-            "--epsilon-decay 0.99996 --epsilon-min 0.01 "
+            "--epsilon-decay 0.99999 --epsilon-min 0.01 "
             "--target-update-frequency 8000 "
             "--batch-size 32 --lr 0.00025 "
             "--discount-factor 0.99 --max-episode-steps 10000"
