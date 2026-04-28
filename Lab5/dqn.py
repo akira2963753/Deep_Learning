@@ -631,7 +631,21 @@ class DQNAgent:
             self.epsilon *= self.epsilon_decay
         self.train_count += 1
 
-        # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (2.5M env steps)
+        # Two-stage LR decay tuned for the 600K milestone:
+        #   < 400K : 2.5e-4   (fast learning)
+        #   < 600K : 1.5e-4   (gentle brake while policy plateaus)
+        #   ≥ 600K : 1.0e-4   (lock in to dampen Q-value oscillation around optimum)
+        if self.env_count < 400_000:
+            target_lr = 2.5e-4
+        elif self.env_count < 600_000:
+            target_lr = 1.5e-4
+        else:
+            target_lr = 1.0e-4
+        for pg in self.optimizer.param_groups:
+            if pg['lr'] != target_lr:
+                pg['lr'] = target_lr
+
+        # PER β annealing: linearly increase from 0.4 → 1.0 over full training budget (0.6M env steps)
         # Slow annealing keeps IS correction gentle in early/mid training, full correction only at end
         if self.use_per:
             self.memory.beta = min(1.0, 0.4 + (1.0 - 0.4) * (self.env_count / 600_000))
@@ -693,7 +707,14 @@ class DQNAgent:
 
         # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
-            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f}")
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f} LR: {current_lr:.2e}")
+            wandb.log({
+                "Train Loss": loss.item(),
+                "Q Mean": q_values.mean().item(),
+                "Learning Rate": current_lr,
+                "Update Count": self.train_count,
+            })
 
 
 if __name__ == "__main__":
