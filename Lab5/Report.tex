@@ -645,7 +645,7 @@ PER $\varepsilon$ (priority floor) & $10^{-6}$ \\
 3 & Dueling DQN            & 3          & 0.99          & 20\,k          & 0.00025         & \textbf{Y} & 10.65 / 16.65 / 15.2 & 14.17 \\
 4 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025         & N          & 10.25 / 12.5 / 11.4  & 11.38 \\
 5 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025         & N          & 16.25 / 15.0 / 15.85 & 15.70 \\
-6 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & N          & 17.4 / {---} / {---} & 17.40 \\
+6 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & N          & 16.4 / {14.3} / {15.5} & 15.4 \\
 \bottomrule
 \end{tabular}}
 \end{table}
@@ -1092,9 +1092,174 @@ Tracking both allows us to detect overestimation
 
 \newpage
 
+\section{Evaluation Results}
+\subsection{Task 1}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{image1.png}
+    \caption{Enter Caption}
+    \label{fig:placeholder}
+\end{figure}
+
+
+
+
+The grading formula for Task~1 is (Eq.~3 in the spec):
+
+\begin{equation}
+  \text{Score percentage} \;=\;
+  \frac{\min\{\text{average evaluation score},\; 480\}}{480} \times 15\%
+\end{equation}
+
+The best model achieves an average evaluation score of $\mathbf{500}$ over 20 episodes,
+which exceeds the full-credit threshold of 480.
+Substituting into the formula:
+
+\[
+  \text{Score percentage}
+  \;=\; \frac{\min\{500,\; 480\}}{480} \times 15\%
+  \;=\; \frac{480}{480} \times 15\%
+  \;=\; \mathbf{15\%}
+\]
+
+\newpage
+
+\subsection{Task 2}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1\linewidth]{image.png}
+    \caption{Enter Caption}
+    \label{fig:placeholder}
+\end{figure}
+
+
+The grading formula for Task~2 is (Eq.~4 in the spec):
+
+\begin{equation}
+  \text{Score percentage} \;=\;
+  \frac{\min\{\text{average evaluation score},\; 19\} + 21}{40} \times 20\%
+\end{equation}
+
+The best model achieves an average evaluation score of $\mathbf{19.20}$ over 20 episodes,
+which exceeds the full-credit threshold of 19.
+Substituting into the formula:
+
+\[
+  \text{Score percentage}
+  \;=\; \frac{\min\{19.20,\; 19\} + 21}{40} \times 20\%
+  \;=\; \frac{19 + 21}{40} \times 20\%
+  \;=\; \frac{40}{40} \times 20\%
+  \;=\; \mathbf{20\%}
+\]
+
+\newpage
+
+\subsection{Task 3}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.78\linewidth]{image3.png}
+    \includegraphics[width=0.78\linewidth]{image4.png}
+    \includegraphics[width=0.78\linewidth]{image5.png}
+    \caption{Enter Caption}
+    \label{fig:placeholder}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.78\linewidth]{image6.png}
+    \includegraphics[width=0.78\linewidth]{image7.png}
+    \caption{Enter Caption}
+    \label{fig:placeholder}
+\end{figure}
+
+\newpage
+
+The grading of Task~3 depends on \textbf{sample efficiency}: the fewer environment steps
+required to first reach an average score of 19, the higher the score percentage.
+The grading table from the spec is reproduced below:
+
+\begin{table}[H]
+\centering
+\caption{Task~3 grading table (score percentage vs.\ environment steps to reach score 19).}
+{\setlength{\tabcolsep}{12pt}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Steps to reach score 19} & 600\,k & 1\,M & 1.5\,M & 2\,M & 2.5\,M & $>$2.5\,M \\
+\midrule
+Score percentage & 20\% & 17\% & 15\% & 13\% & 11\% & 8\% \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The 20-seed average evaluation scores at each milestone checkpoint are:
+
+\begin{table}[H]
+\centering
+\caption{20-seed average evaluation reward at each Task~3 milestone checkpoint.}
+{\setlength{\tabcolsep}{14pt}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Checkpoint} & 600\,k & 1\,M & 1.5\,M & 2\,M & 2.5\,M \\
+\midrule
+Average reward & 17.35 & \textbf{19.35} & 19.45 & 19.75 & 20.55 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The model \textbf{first reaches score 19 at the 1\,M-step checkpoint} (average reward 19.35).
+According to the grading table, this corresponds to a score percentage of $\mathbf{17\%}$.
+
+\newpage
+
 \section{Analyze the sample efficiency with and without the DQN enhancements}
 
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\linewidth]{W&B Chart 2026_4_29 下午5_18_44.png}
+    \caption{Evaluation reward vs.\ environment steps for the enhanced agent
+             (\textit{task3-full}: DDQN + PER + Multi-step $n{=}3$) and the vanilla DQN baseline
+             (\textit{task3-none}) on Pong-v5.}
+    \label{fig:sample-efficiency}
+\end{figure}
+
+Figure~\ref{fig:sample-efficiency} compares the learning curves of the two agents.
+Several observations stand out:
+
+\begin{itemize}[leftmargin=1.8em]
+  \item \textbf{Faster convergence.}
+        The enhanced agent (\textit{task3-full}) begins to improve from the very first
+        evaluation, reaching an average reward of approximately 19 by \textbf{600\,k} steps.
+        In contrast, the vanilla baseline (\textit{task3-none}) remains near $-20$ until
+        roughly 400\,k steps and does not consistently exceed 19 until beyond 2\,M steps —
+        a roughly \textbf{3$\times$ reduction in the number of environment steps required}.
+
+  \item \textbf{Greater stability.}
+        After converging, \textit{task3-full} fluctuates narrowly between 18 and 21,
+        maintaining a stable plateau throughout the rest of training.
+        The baseline exhibits far higher variance, including two catastrophic drops
+        (to near $-1$ at $\sim\!1.25$\,M steps and near $+3$ at $\sim\!2.25$\,M steps),
+        indicating policy instability typical of unmitigated overestimation bias and
+        poorly distributed replay samples.
+
+  \item \textbf{Contribution of each enhancement.}
+        The accelerated early learning is primarily attributable to \textbf{PER}
+        (high-error transitions are replayed more often, producing denser learning signal)
+        and \textbf{Multi-step return} (faster reward propagation reduces the number of
+        updates needed to back-propagate a sparse end-of-game reward).
+        \textbf{Double DQN} suppresses overestimation, which explains the improved
+        long-run stability of \textit{task3-full} compared to \textit{task3-none}.
+\end{itemize}
+
+\newpage
+
 \section{Ablation study}
+
+
+
+\newpage
 
 
 \section{Additional analysis on other training strategies (Bonus)}

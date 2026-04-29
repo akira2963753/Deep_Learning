@@ -19,7 +19,6 @@ import time
 
 gym.register_envs(ale_py)
 
-
 def init_weights(m):
     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
         nn.init.kaiming_uniform_(m.weight, nonlinearity='relu')
@@ -33,7 +32,7 @@ class DQN(nn.Module):
         - Feel free to change the architecture (e.g. number of hidden layers and the width of each hidden layer) as you like
         - Feel free to add any member variables/functions whenever needed
     """
-    def __init__(self, num_actions):
+    def __init__(self, input_shape, num_actions):
         super(DQN, self).__init__()
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.network = nn.Sequential(

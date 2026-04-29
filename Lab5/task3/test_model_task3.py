@@ -34,7 +34,7 @@ def evaluate(args):
     num_actions = env.action_space.n
 
     model = DQN(input_shape, num_actions).to(device)
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
+    model.load_state_dict(torch.load(args.model_path, map_location=device, weights_only=True))
     model.eval()
 
     os.makedirs(args.output_dir, exist_ok=True)
