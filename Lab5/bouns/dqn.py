@@ -5,6 +5,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 import random
@@ -27,6 +28,63 @@ def init_weights(m):
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
 
+
+class NoisyLinear(nn.Module):
+    """
+    Factorized Gaussian Noisy Linear layer (Fortunato et al., 2017).
+    Replaces ε-greedy exploration: noise is injected via learnable σ parameters,
+    letting the network adapt its own exploration level during training.
+
+    Factorized noise: sample p + q values instead of p×q, then take outer product.
+    - Training mode: noisy weights/biases → stochastic exploration
+    - Eval mode:     deterministic weights/biases (ε_w = ε_b = 0) → greedy policy
+    """
+    def __init__(self, in_features, out_features, sigma_init=0.5):
+        super().__init__()
+        self.in_features  = in_features
+        self.out_features = out_features
+
+        # Learnable μ and σ for weights and biases
+        self.mu_weight    = nn.Parameter(torch.empty(out_features, in_features))
+        self.sigma_weight = nn.Parameter(torch.full((out_features, in_features),
+                                                    sigma_init / (in_features ** 0.5)))
+        self.mu_bias      = nn.Parameter(torch.empty(out_features))
+        self.sigma_bias   = nn.Parameter(torch.full((out_features,),
+                                                    sigma_init / (in_features ** 0.5)))
+
+        # Noise buffers — resampled each step via reset_noise()
+        self.register_buffer('eps_w', torch.zeros(out_features, in_features))
+        self.register_buffer('eps_b', torch.zeros(out_features))
+
+        # μ ~ Uniform(-1/√p, 1/√p)
+        bound = 1.0 / (in_features ** 0.5)
+        nn.init.uniform_(self.mu_weight, -bound, bound)
+        nn.init.uniform_(self.mu_bias,   -bound, bound)
+        self.reset_noise()
+
+    @staticmethod
+    def _f(x):
+        return x.sign() * x.abs().sqrt()  # factorized noise transform
+
+    def reset_noise(self):
+        # Sample on the same device as the buffer (handles CPU and GPU)
+        device = self.eps_w.device
+        eps_p = self._f(torch.randn(self.in_features,  device=device))
+        eps_q = self._f(torch.randn(self.out_features, device=device))
+        self.eps_w.copy_(eps_q.outer(eps_p))
+        self.eps_b.copy_(eps_q)
+
+    def forward(self, x):
+        if self.training:
+            weight = self.mu_weight + self.sigma_weight * self.eps_w
+            bias   = self.mu_bias   + self.sigma_bias   * self.eps_b
+        else:
+            # Deterministic: use mean parameters only
+            weight = self.mu_weight
+            bias   = self.mu_bias
+        return F.linear(x, weight, bias)
+
+
 class DQN(nn.Module):
     """
         Design the architecture of your deep Q network
@@ -34,12 +92,16 @@ class DQN(nn.Module):
         - Feel free to change the architecture (e.g. number of hidden layers and the width of each hidden layer) as you like
         - Feel free to add any member variables/functions whenever needed
     """
-    def __init__(self, input_shape, num_actions):
+    def __init__(self, input_shape, num_actions, use_dueling=False, use_noisy_nets=False):
         super(DQN, self).__init__()
         ########## YOUR CODE HERE (5~10 lines) ##########
-        self.is_atari = (len(input_shape) == 3)
+        self.is_atari       = (len(input_shape) == 3)
+        self.use_dueling    = use_dueling
+        self.use_noisy_nets = use_noisy_nets
+        # Switch FC layer type: NoisyLinear for learned exploration, nn.Linear for ε-greedy
+        Lin = NoisyLinear if use_noisy_nets else nn.Linear
 
-        if self.is_atari: # For Task 2, 3 
+        if self.is_atari: # For Task 2, 3
             in_channels = input_shape[0]
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=8, stride=4),
@@ -53,27 +115,75 @@ class DQN(nn.Module):
             with torch.no_grad():
                 dummy = torch.zeros(1, *input_shape)
                 conv_out_size = self.conv(dummy).shape[1]
-            self.fc = nn.Sequential(
-                nn.Linear(conv_out_size, 512),
-                nn.ReLU(),
-                nn.Linear(512, num_actions),
-            )
+
+            if use_dueling:
+                # Dueling: separate value and advantage streams after shared conv
+                self.value_stream = nn.Sequential(
+                    Lin(conv_out_size, 512),
+                    nn.ReLU(),
+                    Lin(512, 1),
+                )
+                self.advantage_stream = nn.Sequential(
+                    Lin(conv_out_size, 512),
+                    nn.ReLU(),
+                    Lin(512, num_actions),
+                )
+            else:
+                self.fc = nn.Sequential(
+                    Lin(conv_out_size, 512),
+                    nn.ReLU(),
+                    Lin(512, num_actions),
+                )
         else: # For Task 1
             in_features = input_shape[0]
-            self.network = nn.Sequential(
-                nn.Linear(in_features, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, num_actions),
-            )
+            if use_dueling:
+                # Shared feature extractor, then split into V and A streams
+                self.shared = nn.Sequential(
+                    Lin(in_features, 128),
+                    nn.ReLU(),
+                )
+                self.value_stream = nn.Sequential(
+                    Lin(128, 128),
+                    nn.ReLU(),
+                    Lin(128, 1),
+                )
+                self.advantage_stream = nn.Sequential(
+                    Lin(128, 128),
+                    nn.ReLU(),
+                    Lin(128, num_actions),
+                )
+            else:
+                self.network = nn.Sequential(
+                    Lin(in_features, 128),
+                    nn.ReLU(),
+                    Lin(128, 128),
+                    nn.ReLU(),
+                    Lin(128, num_actions),
+                )
         ########## END OF YOUR CODE ##########
+
+    def reset_noise(self):
+        """Resample noise in all NoisyLinear sub-modules. Call before each train step."""
+        for m in self.modules():
+            if isinstance(m, NoisyLinear):
+                m.reset_noise()
 
     def forward(self, x):
         if self.is_atari:
             x = x / 255.0
-            return self.fc(self.conv(x))
+            features = self.conv(x)
+            if self.use_dueling:
+                value = self.value_stream(features)          # (B, 1)
+                advantage = self.advantage_stream(features)  # (B, A)
+                # Subtract mean advantage to keep identifiability of V and A
+                return value + advantage - advantage.mean(dim=1, keepdim=True)
+            return self.fc(features)
         else:
+            if self.use_dueling:
+                features = self.shared(x)
+                value = self.value_stream(features)
+                advantage = self.advantage_stream(features)
+                return value + advantage - advantage.mean(dim=1, keepdim=True)
             return self.network(x)
 
 
@@ -301,9 +411,13 @@ class DQNAgent:
             input_shape = (4,)
             self.best_reward = 0
 
-        self.q_net = DQN(input_shape, self.num_actions).to(self.device)
+        use_dueling    = args.use_dueling    if hasattr(args, 'use_dueling')    else False
+        use_noisy_nets = args.use_noisy_nets if hasattr(args, 'use_noisy_nets') else False
+        self.q_net = DQN(input_shape, self.num_actions,
+                         use_dueling=use_dueling, use_noisy_nets=use_noisy_nets).to(self.device)
         self.q_net.apply(init_weights)
-        self.target_net = DQN(input_shape, self.num_actions).to(self.device)
+        self.target_net = DQN(input_shape, self.num_actions,
+                              use_dueling=use_dueling, use_noisy_nets=use_noisy_nets).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4)
 
@@ -323,9 +437,11 @@ class DQNAgent:
         os.makedirs(self.save_dir, exist_ok=True)
 
         # Task 3 enhancement flags (all default to False for vanilla DQN compatibility)
-        self.use_ddqn      = args.use_ddqn      if hasattr(args, 'use_ddqn')      else False
-        self.use_per       = args.use_per        if hasattr(args, 'use_per')        else False
-        self.use_multistep = args.use_multistep  if hasattr(args, 'use_multistep')  else False
+        self.use_ddqn      = args.use_ddqn       if hasattr(args, 'use_ddqn')       else False
+        self.use_per       = args.use_per         if hasattr(args, 'use_per')         else False
+        self.use_multistep = args.use_multistep   if hasattr(args, 'use_multistep')   else False
+        self.use_dueling   = args.use_dueling     if hasattr(args, 'use_dueling')     else False
+        self.use_noisy_nets = args.use_noisy_nets if hasattr(args, 'use_noisy_nets') else False
         # n_step=1 when multistep disabled → gamma^1 = gamma, identical to vanilla
         self.n_step        = (args.n_step if hasattr(args, 'n_step') else 1) if self.use_multistep else 1
 
@@ -370,7 +486,8 @@ class DQNAgent:
                 self.vec_preprocessors = [CartPolePreprocessor() for _ in range(self.num_envs)]
 
     def select_action(self, state):
-        if random.random() < self.epsilon:
+        # Noisy Nets: network noise provides exploration — skip ε-greedy
+        if not self.use_noisy_nets and random.random() < self.epsilon:
             return random.randint(0, self.num_actions - 1)
         state_tensor = torch.from_numpy(np.array(state)).unsqueeze(0).to(self.device).float()
         with torch.no_grad():
@@ -379,12 +496,15 @@ class DQNAgent:
 
     def select_action_batch(self, states_list):
         N = len(states_list)
-        explore = [random.random() < self.epsilon for _ in range(N)]
-        if all(explore):
-            return [random.randint(0, self.num_actions - 1) for _ in range(N)]
+        if not self.use_noisy_nets:
+            explore = [random.random() < self.epsilon for _ in range(N)]
+            if all(explore):
+                return [random.randint(0, self.num_actions - 1) for _ in range(N)]
         batch = torch.from_numpy(np.stack(states_list)).to(self.device).float()
         with torch.no_grad():
             greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
+        if self.use_noisy_nets:
+            return greedy_actions
         return [
             random.randint(0, self.num_actions - 1) if explore[i] else greedy_actions[i]
             for i in range(N)
@@ -604,6 +724,7 @@ class DQNAgent:
                 })
 
     def evaluate(self):
+        self.q_net.eval()  # NoisyLinear uses deterministic μ in eval mode
         obs, _ = self.test_env.reset(seed=12345)
         state = self.preprocessor.reset(obs)
         done = False
@@ -618,6 +739,7 @@ class DQNAgent:
             total_reward += reward
             state = self.preprocessor.step(next_obs)
 
+        self.q_net.train()  # restore training mode
         return total_reward
 
 
@@ -626,8 +748,13 @@ class DQNAgent:
         if len(self.memory) < self.replay_start_size:
             return 
         
-        # Decay function for epsilin-greedy exploration
-        if self.epsilon > self.epsilon_min:
+        # Resample noise before computing Q values (Noisy Nets only)
+        if self.use_noisy_nets:
+            self.q_net.reset_noise()
+            self.target_net.reset_noise()
+
+        # Decay ε-greedy exploration (skipped when Noisy Nets handles exploration)
+        if not self.use_noisy_nets and self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
         self.train_count += 1
 
@@ -729,7 +856,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     # Task 3 enhancement flags — toggle each technique independently for ablation study
-    parser.add_argument("--use-ddqn",      action="store_true", help="Enable Double DQN")
+    parser.add_argument("--use-dueling",    action="store_true", help="Enable Dueling Network")
+    parser.add_argument("--use-ddqn",       action="store_true", help="Enable Double DQN")
+    parser.add_argument("--use-noisy-nets", action="store_true", help="Enable Noisy Nets (replaces epsilon-greedy)")
     parser.add_argument("--use-per",       action="store_true", help="Enable Prioritized Experience Replay")
     parser.add_argument("--use-multistep", action="store_true", help="Enable n-step return (requires --num-envs > 1)")
     parser.add_argument("--n-step",        type=int,   default=3,   help="Steps for multi-step return")
