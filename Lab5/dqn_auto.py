@@ -2,22 +2,24 @@
 dqn_auto.py — Automated train-evaluate-retry loop for Task 3 Pong DQN.
 
 Strategy:
-  Stage 1 (gambling): Train each attempt to 600K env steps and kill the
-    subprocess as soon as `[Milestone] Saved model_600000.pt` is printed.
-    Run test_model_task3.py over 20 seeds. If avg >= target, advance to
-    Stage 2; otherwise wipe the attempt's save_dir and retry.
-  Stage 2 (confirm): Train one full run to 2.5M to obtain the remaining
-    milestone snapshots (1M / 1.5M / 2M / 2.5M). If this run's own 600K
-    snapshot also passes the target, use it; otherwise copy Stage 1's
-    successful 600K snapshot in (Frankenstein submission — TA only runs
-    inference, so checkpoint-continuity is not validated).
+  For each attempt:
+    1. Start dqn.py with enough episodes to reach 2.5M env steps.
+    2. When `model_600000.pt` is saved, launch eval in a background thread
+       (training keeps running — do NOT kill it).
+    3. Continue streaming training output.  As soon as eval finishes:
+         - eval failed  → kill training, wipe save_dir, try next attempt.
+         - eval passed  → let training run to completion (2.5M).
+    4. After training finishes, confirm all milestones are present.
+
+This guarantees that the 600K / 1M / 1.5M / 2M / 2.5M snapshots all come
+from a single continuous training trajectory.
 
 Critical implementation notes:
   * subprocess output is forced unbuffered via `python -u` + PYTHONUNBUFFERED
-    so the milestone-save line is observed immediately (otherwise it sits
-    in the OS pipe buffer for minutes).
+    so the milestone-save line is observed immediately.
   * `proc.terminate()` alone leaks AsyncVectorEnv child processes on Windows.
     We use `psutil` to walk and kill the entire process tree.
+  * Eval runs in a daemon thread so KeyboardInterrupt still propagates cleanly.
 """
 
 import argparse
@@ -25,9 +27,9 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -43,12 +45,6 @@ except ImportError:
 # Process-tree kill (Windows-safe; covers AsyncVectorEnv children)
 # --------------------------------------------------------------------------- #
 def kill_process_tree(pid, timeout=10):
-    """Terminate the process and all of its descendants.
-
-    On Windows, gym.vector.AsyncVectorEnv spawns child processes that survive
-    a plain proc.terminate(). This walks the whole tree, sends SIGTERM, then
-    escalates to SIGKILL after `timeout` seconds for any survivors.
-    """
     try:
         parent = psutil.Process(pid)
     except psutil.NoSuchProcess:
@@ -85,7 +81,6 @@ class TeeLogger:
     def __init__(self, log_path):
         self.log_path = log_path
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        # Ensure file exists
         with open(log_path, "a", encoding="utf-8"):
             pass
 
@@ -119,46 +114,10 @@ def spawn_dqn(train_args_list, save_dir, run_name, episodes):
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        bufsize=1,                 # line-buffered on the wrapper side
+        bufsize=1,
         text=True,
         env=make_unbuffered_env(),
     )
-
-
-def stream_until(proc, target_substr, log, timeout_seconds=None):
-    """Stream subprocess stdout to console+log; return True when a line
-    containing `target_substr` appears, or False on process exit / timeout.
-    """
-    start = time.time()
-    while True:
-        if timeout_seconds is not None and (time.time() - start) > timeout_seconds:
-            log(f"[stream] Timeout after {timeout_seconds}s waiting for '{target_substr}'")
-            return False
-
-        line = proc.stdout.readline()
-        if line == "":
-            # EOF — process has exited
-            ret = proc.poll()
-            log(f"[stream] Subprocess exited with code {ret} before milestone")
-            return False
-
-        # Echo to console (already flushed via print on TeeLogger? avoid double-log)
-        sys.stdout.write(line)
-        sys.stdout.flush()
-
-        if target_substr in line:
-            return True
-
-
-def stream_to_completion(proc, log):
-    """Stream subprocess stdout until it exits naturally."""
-    while True:
-        line = proc.stdout.readline()
-        if line == "":
-            proc.wait()
-            return proc.returncode
-        sys.stdout.write(line)
-        sys.stdout.flush()
 
 
 def run_eval(model_path, eval_episodes, log):
@@ -177,7 +136,7 @@ def run_eval(model_path, eval_episodes, log):
             stderr=subprocess.STDOUT,
             text=True,
             env=make_unbuffered_env(),
-            timeout=60 * 30,  # 30 min hard cap
+            timeout=60 * 30,
         )
     except subprocess.TimeoutExpired:
         log("[eval] Timed out (>30 min)")
@@ -193,6 +152,109 @@ def run_eval(model_path, eval_episodes, log):
     return float(m.group(1))
 
 
+def stream_and_eval(proc, model_600k, eval_episodes, target_score,
+                    log, timeout_seconds):
+    """
+    Stream proc's stdout while running eval in a background thread.
+
+    Phase A — wait for '600K milestone' line:
+      Returns "no_milestone" if process exits or times out before it.
+
+    Phase B — eval thread starts; keep streaming:
+      - If eval fails (avg < target_score)  → kill proc, return "eval_failed"
+      - If eval passes                      → keep streaming until proc exits naturally
+      - If proc exits before eval finishes  → wait for eval, return result
+      Returns "success" or "eval_failed".
+    """
+    # ---- Phase A: stream until 600K milestone ----
+    start = time.time()
+
+    while True:
+        if timeout_seconds is not None and (time.time() - start) > timeout_seconds:
+            log(f"[stream] Timeout waiting for 600K milestone")
+            return "no_milestone"
+
+        line = proc.stdout.readline()
+        if line == "":
+            log(f"[stream] Process exited before 600K milestone (code {proc.poll()})")
+            return "no_milestone"
+
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+        if "model_600000.pt" in line:
+            log("[stream] 600K milestone detected — starting eval in background")
+            break
+
+    # ---- Phase B: launch eval thread, continue streaming ----
+    # Use a sentinel to distinguish "eval still running" from "eval returned None (failed)"
+    _PENDING = object()
+    eval_result = [_PENDING]
+
+    def _eval_worker():
+        eval_result[0] = run_eval(str(model_600k), eval_episodes, log)
+
+    eval_thread = threading.Thread(target=_eval_worker, daemon=True)
+    eval_thread.start()
+
+    proc_done = False
+    while True:
+        # Check if eval thread has finished writing its result
+        if eval_result[0] is not _PENDING:
+            avg = eval_result[0]
+            if avg is None:
+                # eval timed out or failed to parse — treat as failure
+                log("[stream] Eval returned None (timeout/parse error) — killing training")
+                kill_process_tree(proc.pid)
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
+                return "eval_failed", None
+            log(f"[stream] Eval finished: avg = {avg:.2f}")
+            if avg < target_score:
+                log(f"[stream] Eval failed ({avg:.2f} < {target_score}) — killing training")
+                kill_process_tree(proc.pid)
+                try:
+                    proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    pass
+                return "eval_failed", avg
+            else:
+                log(f"[stream] Eval passed ({avg:.2f} >= {target_score}) — waiting for 2.5M")
+                # drain remaining output until training finishes naturally
+                while True:
+                    line = proc.stdout.readline()
+                    if line == "":
+                        proc.wait()
+                        break
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                return "success", avg
+
+        if proc_done:
+            # Training finished before eval thread wrote its result — wait for it
+            eval_thread.join(timeout=60 * 30)
+            avg = eval_result[0]
+            if avg is _PENDING or avg is None:
+                log("[stream] Eval did not return a valid result after process exit")
+                return "eval_failed", None
+            log(f"[stream] (post-exit) Eval result: avg = {avg:.2f}")
+            if avg >= target_score:
+                return "success", avg
+            return "eval_failed", avg
+
+        # Read next line from training process
+        line = proc.stdout.readline()
+        if line == "":
+            proc.wait()
+            proc_done = True
+            continue
+
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+
 # --------------------------------------------------------------------------- #
 # Main loop
 # --------------------------------------------------------------------------- #
@@ -203,22 +265,21 @@ def main():
     parser.add_argument("--max-attempts", type=int, default=20)
     parser.add_argument("--target-score", type=float, default=18.95)
     parser.add_argument("--base-save-dir", type=str, default="./auto_runs")
-    parser.add_argument("--episodes-per-attempt", type=int, default=500,
-                        help="Cap for Stage 1 attempts (subprocess is killed at 600K anyway)")
-    parser.add_argument("--episodes-final", type=int, default=1500,
-                        help="Episodes for Stage 2 confirm run (full 2.5M)")
+    parser.add_argument(
+        "--episodes-per-attempt", type=int, default=1800,
+        help="Max episodes per attempt — must be enough to reach 2.5M env steps"
+    )
     parser.add_argument("--eval-episodes", type=int, default=20,
                         help="20-seed test (seeds 0-19) per spec")
     parser.add_argument("--train-timeout-hours", type=float, default=6.0,
-                        help="Hard timeout per attempt before giving up")
-    parser.add_argument("--final-run-name", type=str, default="task3-auto-final")
+                        help="Hard timeout per attempt waiting for 600K milestone")
     parser.add_argument(
         "--train-args",
         type=str,
         default=(
             "--env ALE/Pong-v5 --num-envs 4 "
             "--use-ddqn --use-per --use-multistep --n-step 3 "
-            "--memory-size 200000 --replay-start-size 50000 "
+            "--memory-size 200000 --replay-start-size 20000 "
             "--epsilon-decay 0.99996 --epsilon-min 0.01 "
             "--target-update-frequency 2000 "
             "--batch-size 32 --lr 0.00025 "
@@ -240,13 +301,9 @@ def main():
     log(f"Train args: {args.train_args}")
     log("=" * 70)
 
-    # --------------------------------------------------------------- #
-    # Stage 1: gambling loop
-    # --------------------------------------------------------------- #
     success_dir = None
     success_avg = None
     best_avg_seen = float("-inf")
-
     timeout_seconds = args.train_timeout_hours * 3600
 
     for attempt in range(1, args.max_attempts + 1):
@@ -255,16 +312,20 @@ def main():
         save_dir.mkdir(parents=True, exist_ok=True)
 
         log(f"\n--- Attempt {attempt}/{args.max_attempts} ---")
-        log(f"save_dir = {save_dir}")
-        log(f"wandb-run-name = {run_name}")
+        log(f"save_dir  = {save_dir}")
+        log(f"run_name  = {run_name}")
 
         proc = spawn_dqn(train_args_list, str(save_dir), run_name,
                          args.episodes_per_attempt)
 
+        model_600k = save_dir / "model_600000.pt"
+
         try:
-            milestone_hit = stream_until(
-                proc,
-                target_substr="model_600000.pt",
+            outcome = stream_and_eval(
+                proc=proc,
+                model_600k=model_600k,
+                eval_episodes=args.eval_episodes,
+                target_score=args.target_score,
                 log=log,
                 timeout_seconds=timeout_seconds,
             )
@@ -273,98 +334,44 @@ def main():
             kill_process_tree(proc.pid)
             sys.exit(130)
 
-        # Always kill the subprocess at this point (we have 600K saved already
-        # if milestone_hit, otherwise the process is dead anyway).
-        kill_process_tree(proc.pid)
-        try:
-            proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            pass
-
-        if not milestone_hit:
+        # outcome is either a string ("no_milestone") or a tuple ("success"/"eval_failed", avg)
+        if outcome == "no_milestone":
             log(f"[attempt {attempt}] Did not reach 600K milestone — cleaning up")
+            kill_process_tree(proc.pid)
             shutil.rmtree(save_dir, ignore_errors=True)
             continue
 
-        model_600k = save_dir / "model_600000.pt"
-        if not model_600k.exists():
-            log(f"[attempt {attempt}] Milestone line seen but {model_600k} missing — cleaning up")
+        status, avg = outcome
+
+        if avg is not None:
+            best_avg_seen = max(best_avg_seen, avg)
+
+        if status == "eval_failed":
+            label = f"{avg:.2f}" if avg is not None else "N/A"
+            log(f"[attempt {attempt}] Below target ({label} < {args.target_score}) — cleaning up")
             shutil.rmtree(save_dir, ignore_errors=True)
             continue
 
-        # Evaluate
-        avg = run_eval(str(model_600k), args.eval_episodes, log)
-        if avg is None:
-            log(f"[attempt {attempt}] Eval failed — cleaning up")
-            shutil.rmtree(save_dir, ignore_errors=True)
-            continue
+        # status == "success"
+        log(f"[attempt {attempt}] *** SUCCESS (avg {avg:.2f} >= {args.target_score}) ***")
+        success_dir = save_dir
+        success_avg = avg
+        break
 
-        log(f"[attempt {attempt}] 600K 20-seed average = {avg:.2f}")
-        best_avg_seen = max(best_avg_seen, avg)
-
-        if avg >= args.target_score:
-            log(f"[attempt {attempt}] *** SUCCESS (avg {avg:.2f} >= {args.target_score}) ***")
-            success_dir = save_dir
-            success_avg = avg
-            break
-        else:
-            log(f"[attempt {attempt}] Below target ({avg:.2f} < {args.target_score}) — cleaning up")
-            shutil.rmtree(save_dir, ignore_errors=True)
-
+    # --------------------------------------------------------------- #
+    # Final summary
+    # --------------------------------------------------------------- #
+    log("\n" + "=" * 70)
     if success_dir is None:
-        log("\n" + "=" * 70)
         log(f"Reached max_attempts={args.max_attempts} without hitting target.")
         log(f"Best 600K avg seen: {best_avg_seen:.2f}")
-        log("Consider raising --max-attempts or accepting current best snapshot.")
-        log("=" * 70)
-        return
-
-    # --------------------------------------------------------------- #
-    # Stage 2: confirm — full 2.5M run to collect remaining milestones
-    # --------------------------------------------------------------- #
-    log("\n" + "=" * 70)
-    log(f"Stage 2: full training to 2.5M for milestones 1M/1.5M/2M/2.5M")
-    log("=" * 70)
-
-    final_dir = base_dir / "final_run"
-    final_dir.mkdir(parents=True, exist_ok=True)
-
-    proc = spawn_dqn(
-        train_args_list,
-        str(final_dir),
-        args.final_run_name,
-        args.episodes_final,
-    )
-    try:
-        ret = stream_to_completion(proc, log)
-        log(f"[stage2] Final run finished with exit code {ret}")
-    except KeyboardInterrupt:
-        log("[main] KeyboardInterrupt during Stage 2 — killing subprocess")
-        kill_process_tree(proc.pid)
-        sys.exit(130)
-
-    # Decide on the 600K snapshot for submission
-    final_600k = final_dir / "model_600000.pt"
-    if final_600k.exists():
-        final_avg = run_eval(str(final_600k), args.eval_episodes, log)
-        if final_avg is not None and final_avg >= args.target_score:
-            log(f"[stage2] final_run 600K avg = {final_avg:.2f} >= target — using final's 600K")
-        else:
-            log(f"[stage2] final_run 600K avg = "
-                f"{final_avg if final_avg is not None else 'N/A'} below target — "
-                f"replacing with Stage 1 success snapshot ({success_avg:.2f})")
-            shutil.copy2(success_dir / "model_600000.pt", final_600k)
+        log("Consider raising --max-attempts or lowering --target-score.")
     else:
-        log("[stage2] final_run 600K snapshot missing — copying Stage 1 success snapshot")
-        shutil.copy2(success_dir / "model_600000.pt", final_600k)
-
-    # Final summary
-    log("\n" + "=" * 70)
-    log("DONE. Submission milestones in: " + str(final_dir))
-    for ms in (600_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000):
-        p = final_dir / f"model_{ms}.pt"
-        log(f"  {p.name}: {'OK' if p.exists() else 'MISSING'}")
-    log(f"Stage 1 success attempt preserved at: {success_dir} (avg {success_avg:.2f})")
+        log("DONE. Submission milestones in: " + str(success_dir))
+        for ms in (600_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000):
+            p = success_dir / f"model_{ms}.pt"
+            log(f"  {p.name}: {'OK' if p.exists() else 'MISSING'}")
+        log(f"600K avg: {success_avg:.2f}")
     log("=" * 70)
 
 
