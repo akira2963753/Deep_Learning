@@ -462,6 +462,11 @@ class DQNAgent:
 
             if ep % 20 == 0:
                 eval_reward = self.evaluate()
+                target_lr = 2.5e-4 if eval_reward < 19 else 1e-4
+                current_lr = self.optimizer.param_groups[0]['lr']
+                if target_lr < current_lr:
+                    for pg in self.optimizer.param_groups:
+                        pg['lr'] = target_lr
                 if eval_reward > self.best_reward:
                     self.best_reward = eval_reward
                     model_path = os.path.join(self.save_dir, "best_model.pt")
@@ -574,6 +579,11 @@ class DQNAgent:
 
                     if ep_count % 20 == 0:
                         eval_reward = self.evaluate()
+                        target_lr = 2.5e-4 if eval_reward < 19 else 1e-4
+                        current_lr = self.optimizer.param_groups[0]['lr']
+                        if target_lr < current_lr:
+                            for pg in self.optimizer.param_groups:
+                                pg['lr'] = target_lr
                         if eval_reward > self.best_reward:
                             self.best_reward = eval_reward
                             model_path = os.path.join(self.save_dir, "best_model.pt")
@@ -698,6 +708,7 @@ class DQNAgent:
             wandb.log({
                 "Train Loss": loss.item(),
                 "Q Mean": q_values.mean().item(),
+                "Learning Rate": current_lr,
                 "Update Count": self.train_count,
             })
 
