@@ -131,7 +131,7 @@
 
 {\large\bfseries School}\par
 \vspace{0.4em}
-{\large National Yang Ming Chiao Tung University}\par
+{\large National Taiwan University of Science and Technology }\par
 
 \vfill
 
@@ -147,7 +147,7 @@
 \chapter{Introduction}
 
 \chapter{Implementation}
-\section{Task 1: DQN on CartPole-v1}
+\section{Task 1}
 
 \subsection{Algorithm Overview}
 
@@ -314,7 +314,7 @@ and prevents the network from fitting to a narrow initial distribution of experi
 
 \newpage
 
-\section{Task 2: DQN on Atari (Pong)}
+\section{Task 2}
 
 \subsection{Algorithm Overview}
 
@@ -446,7 +446,7 @@ Max episode steps        & $10{,}000$        & $10{,}000$ \\
 
 \newpage
 
-\section{Task 3: Enhanced DQN on Atari (Pong)}
+\section{Task 3}
 
 \subsection{Algorithm Overview}
 
@@ -599,6 +599,59 @@ grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), 10.0)
   \item \textbf{Milestone checkpoints}: Model weights are automatically saved at
         600\,k, 1\,M, 1.5\,M, 2\,M, and 2.5\,M environment steps for grading.
 \end{itemize}
+
+\subsubsection*{Hyperparameter Settings and Ablation Study}
+
+All six runs share the following fixed hyperparameters:
+DDQN, PER, and Multi-step return ($n=3$) are enabled in every run.
+
+\begin{table}[H]
+\centering
+\caption{Fixed hyperparameters shared across all Task~3 experiments.}
+{\setlength{\tabcolsep}{14pt}
+\begin{tabular}{ll}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+Parallel envs           & 4 \\
+Episodes                & 1{,}500 \\
+Memory size             & 200{,}000 \\
+Batch size              & 32 \\
+$\varepsilon$ start / decay / min & $1.0$ / $0.99996$ / $0.01$ \\
+Adam $\varepsilon$      & $1.5\times10^{-4}$ \\
+Target update freq.     & 2{,}000 \\
+Gradient clip norm      & 10.0 \\
+Max episode steps       & 10{,}000 \\
+PER $\alpha$            & 0.6 \\
+PER $\beta$ (start $\to$ end) & $0.4 \to 1.0$ over 600\,k env steps \\
+PER $\varepsilon$ (priority floor) & $10^{-6}$ \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Ablation results at the 600\,k-step checkpoint.
+         Each value in \emph{20-seed Eval Scores} is the mean episode reward averaged over 20 inference
+         episodes under the greedy policy (three independent runs per configuration).
+         The \textbf{bolded} value in each row is the hyperparameter that differs from the baseline.}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{clccccccc}
+\toprule
+\textbf{Run} & \textbf{Varied Parameter} & $n$\textbf{-step} & $\gamma$ & \textbf{RS} & \textbf{lr} & \textbf{Dueling} & \textbf{20-seed Eval Scores} & \textbf{Mean} \\
+\midrule
+1 & Baseline               & 3          & 0.99          & 20\,k          & 0.00025         & N          & 17.3 / 17.35 / 16.9  & 17.18 \\
+2 & $n$-step $= 5$         & \textbf{5} & 0.99          & 20\,k          & 0.00025         & N          & 15.7 / 17.1 / 14.3   & 15.70 \\
+3 & Dueling DQN            & 3          & 0.99          & 20\,k          & 0.00025         & \textbf{Y} & 10.65 / 16.65 / 15.2 & 14.17 \\
+4 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025         & N          & 10.25 / 12.5 / 11.4  & 11.38 \\
+5 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025         & N          & 16.25 / 15.0 / 15.85 & 15.70 \\
+6 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & N          & 17.4 / {---} / {---} & 17.40 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+\textit{RS} = Replay Start Size.
+
 
 \newpage
 
@@ -1026,9 +1079,26 @@ Tracking both allows us to detect overestimation
 
 \chapter{Analysis and Discussions}
 
-\chapter{Evaluation Results}
+\section{Evaluation score versus environment steps}
 
-\chapter{Bonus}
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\linewidth]{W&B Chart 2026_4_28 下午12_11_37.png}
+    \includegraphics[width=0.65\linewidth]{W&B Chart 2026_4_29 上午11_50_41.png}
+    \includegraphics[width=0.65\linewidth]{W&B Chart 2026_4_29 上午11_48_20.png}
+    \caption{evaluation score versus environment steps of task1, task2 and task3}
+    \label{fig:placeholder}
+\end{figure}
+
+\newpage
+
+\section{Analyze the sample efficiency with and without the DQN enhancements}
+
+\section{Ablation study}
+
+
+\section{Additional analysis on other training strategies (Bonus)}
+
 
 
 \end{document}
