@@ -280,10 +280,11 @@ class DQNAgent:
         self.env = gym.make(env_name, render_mode="rgb_array")
         self.test_env = gym.make(env_name, render_mode="rgb_array")
         self.num_actions = self.env.action_space.n
+        self.num_envs = args.num_envs if args is not None else 1
         # Seed for the very first env reset — controls gym env's internal RNG.
         # Subsequent resets use env's evolving RNG (so episodes keep diversity).
         self.seed = args.seed if (args is not None and hasattr(args, 'seed')) else None
-        self._seeded_single = False  # track whether run()'s env has been seeded yet
+        self._seeded_single = False  # track whether run()'s single env has been seeded yet
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", self.device)
@@ -342,13 +343,31 @@ class DQNAgent:
         else:
             self.memory = deque(maxlen=args.memory_size)
 
-        # Multi-step: single sliding-window buffer for the running episode
+        # Multi-step: one n-step sliding-window buffer per env
+        # Guard: multistep requires vectorized mode (num_envs > 1)
         if self.use_multistep:
-            self.nstep_buffer = deque()
+            if self.num_envs == 1:
+                print("[WARNING] --use-multistep requires --num-envs > 1. Multi-step DISABLED.")
+                self.use_multistep = False
+            else:
+                self.nstep_buffers = [deque() for _ in range(self.num_envs)]
 
         # Milestone checkpoints for Task 3 grading (600k, 1M, 1.5M, 2M, 2.5M env steps)
         self.milestone_steps   = {600_000, 1_000_000, 1_500_000, 2_000_000, 2_500_000}
         self.saved_milestones  = set()
+
+        if self.num_envs > 1:
+            import functools
+            self.vec_env = gym.vector.AsyncVectorEnv(
+                [functools.partial(gym.make, env_name,
+                                   render_mode="rgb_array",
+                                   max_episode_steps=self.max_episode_steps)
+                 for _ in range(self.num_envs)]
+            )
+            if self.is_atari:
+                self.vec_preprocessors = [AtariPreprocessor() for _ in range(self.num_envs)]
+            else:
+                self.vec_preprocessors = [CartPolePreprocessor() for _ in range(self.num_envs)]
 
     def select_action(self, state):
         if random.random() < self.epsilon:
@@ -358,7 +377,23 @@ class DQNAgent:
             q_values = self.q_net(state_tensor)
         return q_values.argmax().item()
 
+    def select_action_batch(self, states_list):
+        N = len(states_list)
+        explore = [random.random() < self.epsilon for _ in range(N)]
+        if all(explore):
+            return [random.randint(0, self.num_actions - 1) for _ in range(N)]
+        batch = torch.from_numpy(np.stack(states_list)).to(self.device).float()
+        with torch.no_grad():
+            greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
+        return [
+            random.randint(0, self.num_actions - 1) if explore[i] else greedy_actions[i]
+            for i in range(N)
+        ]
+
     def run(self, episodes=1000):
+        if self.num_envs > 1:
+            return self.run_vectorized(episodes)
+
         for ep in range(episodes):
             # Seed the env only on the first reset of training; later resets use evolving RNG
             if not self._seeded_single and self.seed is not None:
@@ -383,37 +418,9 @@ class DQNAgent:
                 action = self.select_action(state)
                 next_obs, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
-
+                
                 next_state = self.preprocessor.step(next_obs)
-                transition = (state, action, float(reward), next_state, done)
-
-                if self.use_multistep:
-                    self.nstep_buffer.append(transition)
-
-                    # Once n transitions are accumulated, emit one n-step transition
-                    if len(self.nstep_buffer) >= self.n_step:
-                        buf = self.nstep_buffer
-                        # R = r0 + γ*r1 + ... + γ^(n-1)*r_{n-1}
-                        R      = sum(self.gamma ** k * buf[k][2] for k in range(self.n_step))
-                        s0, a0 = buf[0][0], buf[0][1]
-                        sn, dn = buf[-1][3], buf[-1][4]
-                        t = (s0, a0, R, sn, dn)
-                        self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
-                        self.nstep_buffer.popleft()
-
-                    # Episode ended: flush remaining transitions (shorter than n steps)
-                    if done:
-                        while self.nstep_buffer:
-                            buf    = self.nstep_buffer
-                            n_rem  = len(buf)
-                            R      = sum(self.gamma ** k * buf[k][2] for k in range(n_rem))
-                            s0, a0 = buf[0][0], buf[0][1]
-                            sn, dn = buf[-1][3], buf[-1][4]
-                            t = (s0, a0, R, sn, dn)
-                            self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
-                            self.nstep_buffer.popleft()
-                else:
-                    self.memory.add(transition, error=1.0) if self.use_per else self.memory.append(transition)
+                self.memory.append((state, action, reward, next_state, done))
 
                 for _ in range(self.train_per_step):
                     self.train()
@@ -423,15 +430,7 @@ class DQNAgent:
                 self.env_count += 1
                 step_count += 1
 
-                # Milestone checkpoints for Task 3 grading
-                for ms in list(self.milestone_steps):
-                    if ms not in self.saved_milestones and self.env_count >= ms:
-                        path = os.path.join(self.save_dir, f"model_{ms}.pt")
-                        torch.save(self.q_net.state_dict(), path)
-                        print(f"[Milestone] Saved {path} (env_count={self.env_count})")
-                        self.saved_milestones.add(ms)
-
-                if self.env_count % 1000 == 0:
+                if self.env_count % 1000 == 0:                 
                     print(f"[Collect] Ep: {ep} Step: {step_count} SC: {self.env_count} UC: {self.train_count} Eps: {self.epsilon:.4f}")
                     wandb.log({
                         "Episode": ep,
@@ -473,6 +472,135 @@ class DQNAgent:
                     "Env Step Count": self.env_count,
                     "Update Count": self.train_count,
                     "Eval Reward": eval_reward
+                })
+
+    def run_vectorized(self, episodes=1000):
+        '''
+        Use run_vectorized to support multi-core CPU operation, increasing the training speed.
+        '''
+        N = self.num_envs
+        print(f"=== {N} MULTI-CORES TRAINING START===")
+        # Seed the vector env on its only reset — AsyncVectorEnv assigns seed, seed+1, ..., seed+N-1
+        # to each sub-env internally, so each worker has a distinct but reproducible RNG.
+        if self.seed is not None:
+            obs_batch, _ = self.vec_env.reset(seed=self.seed)
+        else:
+            obs_batch, _ = self.vec_env.reset()
+
+        # NoopReset: apply random noop actions across the batch for initial state diversity (Atari only)
+        if self.is_atari:
+            num_noops = random.randint(0, 30)
+            noop_actions = np.zeros(N, dtype=np.int64)
+            for _ in range(num_noops):
+                obs_batch, _, _, _, _ = self.vec_env.step(noop_actions)
+
+        # Initialization
+        states = [self.vec_preprocessors[i].reset(obs_batch[i]) for i in range(N)] 
+        ep_rewards = np.zeros(N, dtype=np.float32) 
+        ep_count = 0 
+
+        while ep_count < episodes: 
+            actions = np.array(self.select_action_batch(states), dtype=np.int64)
+            next_obs_batch, rewards, terminateds, truncateds, infos = self.vec_env.step(actions)
+            self.env_count += N
+
+            # Save milestone checkpoints when env_count crosses target thresholds
+            for ms in list(self.milestone_steps):
+                if ms not in self.saved_milestones and self.env_count >= ms:
+                    path = os.path.join(self.save_dir, f"model_{ms}.pt")
+                    torch.save(self.q_net.state_dict(), path)
+                    print(f"[Milestone] Saved {path} (env_count={self.env_count})")
+                    self.saved_milestones.add(ms)
+
+            for i in range(N):
+                done = bool(terminateds[i]) or bool(truncateds[i])
+
+                if done:
+                    next_state = self.vec_preprocessors[i].reset(next_obs_batch[i])
+                else:
+                    next_state = self.vec_preprocessors[i].step(next_obs_batch[i])
+
+                transition = (states[i], int(actions[i]), float(rewards[i]), next_state, done)
+
+                if self.use_multistep:
+                    self.nstep_buffers[i].append(transition)
+
+                    # Once n transitions are accumulated, emit one n-step transition
+                    if len(self.nstep_buffers[i]) >= self.n_step:
+                        buf = self.nstep_buffers[i]
+                        # R = r0 + γ*r1 + ... + γ^(n-1)*r_{n-1}
+                        # Episode boundary is handled by the flush below — no cross-episode mixing
+                        R      = sum(self.gamma ** k * buf[k][2] for k in range(self.n_step))
+                        s0, a0 = buf[0][0], buf[0][1]       # state and action at t=0
+                        sn, dn = buf[-1][3], buf[-1][4]     # next_state, done at t=n
+                        t = (s0, a0, R, sn, dn)
+                        self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
+                        self.nstep_buffers[i].popleft()     # slide window forward by 1
+
+                    # Episode ended: flush remaining transitions (shorter than n steps)
+                    if done:
+                        while self.nstep_buffers[i]:
+                            buf     = self.nstep_buffers[i]
+                            n_rem   = len(buf)
+                            R       = sum(self.gamma ** k * buf[k][2] for k in range(n_rem))
+                            s0, a0  = buf[0][0], buf[0][1]
+                            sn, dn  = buf[-1][3], buf[-1][4]
+                            t = (s0, a0, R, sn, dn)
+                            self.memory.add(t, error=1.0) if self.use_per else self.memory.append(t)
+                            self.nstep_buffers[i].popleft()
+                else:
+                    # No multi-step: store single-step transition directly
+                    self.memory.add(transition, error=1.0) if self.use_per else self.memory.append(transition)
+
+                ep_rewards[i] += rewards[i]
+
+                if done:
+                    total_reward = float(ep_rewards[i])
+                    ep_rewards[i] = 0.0
+
+                    print(f"[Eval] Ep: {ep_count} Total Reward: {total_reward} SC: {self.env_count} UC: {self.train_count} Eps: {self.epsilon:.4f}")
+                    wandb.log({
+                        "Episode": ep_count,
+                        "Total Reward": total_reward,
+                        "Env Step Count": self.env_count,
+                        "Update Count": self.train_count,
+                        "Epsilon": self.epsilon
+                    })
+
+                    if ep_count % 100 == 0:
+                        model_path = os.path.join(self.save_dir, f"model_ep{ep_count}.pt")
+                        torch.save(self.q_net.state_dict(), model_path)
+                        print(f"Saved model checkpoint to {model_path}")
+
+                    if ep_count % 20 == 0:
+                        eval_reward = self.evaluate()
+                        if eval_reward > self.best_reward:
+                            self.best_reward = eval_reward
+                            model_path = os.path.join(self.save_dir, "best_model.pt")
+                            torch.save(self.q_net.state_dict(), model_path)
+                            print(f"Saved new best model to {model_path} with reward {eval_reward}")
+                        print(f"[TrueEval] Ep: {ep_count} Eval Reward: {eval_reward:.2f} SC: {self.env_count} UC: {self.train_count}")
+                        wandb.log({
+                            "Env Step Count": self.env_count,
+                            "Update Count": self.train_count,
+                            "Eval Reward": eval_reward
+                        })
+
+                    ep_count += 1
+                    if ep_count >= episodes:
+                        break
+
+                states[i] = next_state
+
+            for _ in range(self.train_per_step):
+                self.train()
+
+            if self.env_count % 1000 < N:
+                print(f"[Collect] SC: {self.env_count} UC: {self.train_count} Eps: {self.epsilon:.4f}")
+                wandb.log({
+                    "Env Step Count": self.env_count,
+                    "Update Count": self.train_count,
+                    "Epsilon": self.epsilon
                 })
 
     def evaluate(self):
@@ -565,10 +693,22 @@ class DQNAgent:
 
         # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
-            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f}")
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f} LR: {current_lr:.2e}")
+            wandb.log({
+                "Train Loss": loss.item(),
+                "Q Mean": q_values.mean().item(),
+                "Update Count": self.train_count,
+            })
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method("spawn", force=True)
+    except RuntimeError:
+        pass
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--save-dir", type=str, default="./results")
     parser.add_argument("--wandb-run-name", type=str, default="cartpole-run")
@@ -585,11 +725,12 @@ if __name__ == "__main__":
     parser.add_argument("--train-per-step", type=int, default=1)
     parser.add_argument("--episodes", type=int, default=3000)
     parser.add_argument("--env", type=str, default="CartPole-v1")
+    parser.add_argument("--num-envs", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     # Task 3 enhancement flags — toggle each technique independently for ablation study
     parser.add_argument("--use-ddqn",      action="store_true", help="Enable Double DQN")
     parser.add_argument("--use-per",       action="store_true", help="Enable Prioritized Experience Replay")
-    parser.add_argument("--use-multistep", action="store_true", help="Enable n-step return")
+    parser.add_argument("--use-multistep", action="store_true", help="Enable n-step return (requires --num-envs > 1)")
     parser.add_argument("--n-step",        type=int,   default=3,   help="Steps for multi-step return")
     parser.add_argument("--per-alpha",     type=float, default=0.6, help="PER prioritization exponent")
     parser.add_argument("--per-beta",      type=float, default=0.4, help="PER IS weight correction exponent")
