@@ -10,7 +10,7 @@ import imageio
 import os
 import re
 import argparse
-from dqn import DQN, AtariPreprocessor
+from dqn_bouns import DQN, AtariPreprocessor
 
 gym.register_envs(ale_py)
 
