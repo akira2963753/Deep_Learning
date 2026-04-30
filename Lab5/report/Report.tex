@@ -1,6 +1,6 @@
 \documentclass[12pt,a4paper]{report}
 
-% Packages — compile with pdfLaTeX
+% Packages:compile with pdfLaTeX
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[lining]{ebgaramond}
@@ -145,6 +145,37 @@
 
 \chapter{Introduction}
 
+\subsubsection*{Tasks and Implementation}
+
+This report implements three progressively more capable DQN agents.
+Task~1 applies a fully connected DQN to CartPole-v1.
+Task~2 scales up to raw pixel input on Atari Pong, replacing the MLP with a
+convolutional network.
+Task~3 adds Double DQN, Prioritized Experience Replay, and multi-step return on top
+of the Task~2 agent.
+The grading target for Task~3 is to reach an average score of 19 within 600\,k
+environment steps, which motivated more aggressive hyperparameter choices than
+Task~2: beta annealing is compressed to finish at 600\,k steps, the learning rate
+is set higher, and epsilon decays faster, pushing the agent toward exploitation earlier.
+
+\subsubsection*{Key Findings}
+
+Task~1 achieves an average evaluation score of 500 (full-credit threshold: 480).
+Task~2 reaches 19.20.
+Task~3 first crosses score~19 at the 1\,M-step checkpoint, roughly $3\times$ faster
+than a vanilla DQN baseline that requires over 2\,M steps to reach the same level.
+As a bonus, Dueling networks and NoisyNet were each added on top of the Task~3 baseline;
+both performed worse, with the degradation tracing to interference between these
+architectures and the PER priority mechanism.
+
+\subsubsection*{Report Organization}
+
+Chapter~2 covers the implementation and design decisions for all three tasks, together
+with five Q\&A responses addressing the coursework questions.
+Chapter~3 analyzes the training curves and evaluation scores, compares sample
+efficiency with and without the DQN enhancements, presents an ablation study over
+key hyperparameters, and discusses the Dueling and NoisyNet experiments.
+
 \chapter{Implementation}
 \section{Task 1}
 
@@ -156,23 +187,20 @@ and updates it to minimize the Bellman error.
 Naive Q-learning with a neural network is unstable; DQN addresses this with three mechanisms:
 
 \begin{itemize}[leftmargin=1.8em]
-  \item \textbf{Experience Replay}: At every time step, the transition
-        $(s,\,a,\,r,\,s',\,\text{done})$ is stored in a fixed-capacity replay buffer
-        (implemented as a \texttt{deque}).
-        During training, a mini-batch is sampled uniformly at random, breaking the temporal
-        correlation between consecutive samples and improving sample efficiency.
+  \item \textbf{Experience Replay}: Each transition $(s,\,a,\,r,\,s',\,\text{done})$ is
+        stored in a fixed-capacity \texttt{deque}.
+        Mini-batches are drawn uniformly at random, which breaks temporal correlation and
+        lets the same transition contribute to multiple updates.
 
-  \item \textbf{Target Network}: A separate network $Q_{\text{target}}(s,a;\,\theta^-)$ with
-        frozen parameters is maintained solely for computing Bellman targets.
-        Its weights are synchronized from the online network only every $N$ training steps
-        (hard copy), preventing the training target from shifting continuously with each
-        gradient update and thereby improving convergence stability.
+  \item \textbf{Target Network}: A separate network $Q_{\text{target}}(s,a;\,\theta^-)$
+        with frozen weights provides stable Bellman targets.
+        Its parameters are copied from the online network every $N$ training steps;
+        between copies they stay fixed, so the training target does not chase itself.
 
   \item \textbf{$\varepsilon$-greedy Exploration}: With probability $\varepsilon$ the agent
-        selects a random action (exploration); with probability $1-\varepsilon$ it selects the
-        action with the highest Q value (exploitation).
-        $\varepsilon$ decays exponentially during training so the policy gradually shifts from
-        exploration toward exploitation.
+        picks a random action; otherwise it picks the highest Q-value action.
+        $\varepsilon$ decays exponentially so the policy shifts from exploration toward
+        exploitation as training progresses.
 \end{itemize}
 
 \subsection{Implementation Details}
@@ -289,17 +317,16 @@ def train(self):
 
 \subsubsection*{Target Network Synchronization}
 
-A \textbf{hard update} strategy is adopted: every
-\texttt{target\_update\_frequency} $= 1{,}000$ training steps,
-all parameters of the online network are copied directly to the target network via
-\texttt{load\_state\_dict}.
-The target network parameters remain frozen between synchronizations.
+Every \texttt{target\_update\_frequency} $= 1{,}000$ training steps, all parameters of
+the online network are copied to the target network via \texttt{load\_state\_dict}.
+Between copies the target network is frozen.
 
 \subsubsection*{Replay Start Size}
 
-Training does not begin until the replay buffer contains at least $50{,}000$ transitions.
-This warm-up phase ensures sufficient sample diversity in the early mini-batches
-and prevents the network from fitting to a narrow initial distribution of experiences.
+Training does not begin until the replay buffer holds at least $50{,}000$ transitions.
+The warm-up period lets the buffer accumulate diverse samples before any gradient
+updates happen, so early mini-batches are not drawn from a single narrow slice of
+the state distribution.
 
 \newpage
 
@@ -555,8 +582,7 @@ target_q_values = rewards + gamma_n * next_q_values * (1 - dones)
 
 \subsubsection*{Additional Engineering Details}
 
-Beyond the three core algorithmic changes, several engineering improvements
-were made over the Task~2 baseline:
+Four engineering details were also added on top of the Task~2 baseline:
 
 \begin{itemize}[leftmargin=1.8em]
   \item \textbf{Frame max-pooling (flicker removal)}: Atari sprites flicker due to
@@ -622,21 +648,23 @@ PER $\varepsilon$ (priority floor) & $10^{-6}$ \\
          episodes under the greedy policy (three independent runs per configuration).
          The \textbf{bolded} value in each row is the hyperparameter that differs from the baseline.}
 \resizebox{\linewidth}{!}{%
-\begin{tabular}{clccccccc}
+\begin{tabular}{clcccccc}
 \toprule
-\textbf{Run} & \textbf{Varied Parameter} & $n$\textbf{-step} & $\gamma$ & \textbf{RS} & \textbf{lr} & \textbf{Dueling} & \textbf{20-seed Eval Scores} & \textbf{Mean} \\
+\textbf{Run} & \textbf{Varied Parameter} & $n$\textbf{-step} & $\gamma$ & \textbf{RS} & \textbf{lr} & \textbf{20-seed Eval Scores} & \textbf{Mean} \\
 \midrule
-1 & Baseline               & 3          & 0.99          & 20\,k          & 0.00025         & N          & 17.3 / 17.35 / 16.9  & 17.18 \\
-2 & $n$-step $= 5$         & \textbf{5} & 0.99          & 20\,k          & 0.00025         & N          & 15.7 / 17.1 / 14.3   & 15.70 \\
-3 & Dueling DQN            & 3          & 0.99          & 20\,k          & 0.00025         & \textbf{Y} & 10.65 / 16.65 / 15.2 & 14.17 \\
-4 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025         & N          & 10.25 / 12.5 / 11.4  & 11.38 \\
-5 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025         & N          & 16.25 / 15.0 / 15.85 & 15.70 \\
-6 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & N          & 16.4 / {14.3} / {15.5} & 15.4 \\
+1 & Baseline               & 3          & 0.99          & 20\,k          & 0.00025         & 17.3 / 17.35 / 16.9  & 17.18 \\
+2 & $n$-step $= 5$         & \textbf{5} & 0.99          & 20\,k          & 0.00025         & 15.7 / 17.1 / 14.3   & 15.70 \\
+3 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025         & 10.25 / 12.5 / 11.4  & 11.38 \\
+4 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025         & 16.25 / 15.0 / 15.85 & 15.70 \\
+5 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & 16.4 / {14.3} / {15.5} & 15.4 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
 \textit{RS} = Replay Start Size.
+
+Two additional strategies from Rainbow (Dueling networks and NoisyNet) were also evaluated
+on top of the \textit{task3-full} baseline; results and analysis are in Section~3.5.
 
 
 \newpage
@@ -769,9 +797,9 @@ class SumTree:
 
 \subsubsection*{PrioritizedReplayBuffer}
 
-\textbf{add()} — new transitions receive the current maximum priority so they are
-guaranteed to be sampled at least once before their TD error is known.
-States are stored as \texttt{uint8} GPU tensors (4$\times$ memory saving over float32):
+New transitions always receive the current maximum priority, so they are sampled at least
+once before their TD error is known.
+States are stored as \texttt{uint8} GPU tensors (4$\times$ smaller than float32):
 
 \begin{pycode}
 def add(self, transition, error):
@@ -788,11 +816,10 @@ def add(self, transition, error):
     self.size = min(self.size + 1, self.capacity)
 \end{pycode}
 
-\textbf{sample()} — uses \textbf{stratified sampling}: the total priority interval is
-divided into $B$ equal segments, and one value is drawn uniformly from each.
-This gives better coverage than pure random sampling.
-\textbf{Importance-Sampling (IS) weights} correct the bias introduced by non-uniform
-sampling:
+Sampling uses \textbf{stratified sampling}: the total priority interval is divided into
+$B$ equal segments and one value is drawn from each, giving better coverage than uniform
+random draws.
+\textbf{Importance-Sampling (IS) weights} correct the distribution bias:
 
 \[
   w_i \;=\; \left(\frac{1}{N \cdot P(i)}\right)^{\!\beta}
@@ -826,8 +853,8 @@ def sample(self, batch_size):
     return (states, actions, rewards, next_states, dones), indices, weights_t
 \end{pycode}
 
-\textbf{update\_priorities()} — after each gradient step, the SumTree is updated with
-the new absolute TD errors:
+After each gradient step, priorities in the SumTree are refreshed with the new absolute
+TD errors:
 
 \begin{pycode}
 def update_priorities(self, indices, errors):
@@ -852,7 +879,7 @@ else:
 
 \subsection*{Q2: How to Modify DQN to Double DQN?}
 
-\subsubsection*{Motivation — Overestimation Bias in Vanilla DQN}
+\subsubsection*{Motivation: Overestimation Bias in Vanilla DQN}
 
 In vanilla DQN, the TD target is computed as:
 
@@ -869,7 +896,7 @@ a phenomenon known as \textbf{overestimation bias}.
 Over time this pushes Q-values higher than their true values,
 biasing the policy toward actions whose estimates happen to be the most inflated.
 
-\subsubsection*{Double DQN Fix — Decouple Selection and Evaluation}
+\subsubsection*{Double DQN Fix: Decouple Selection and Evaluation}
 
 Double DQN (van Hasselt et al., 2016) resolves this by using \emph{two different networks}
 for the two sub-tasks:
@@ -888,7 +915,7 @@ for the two sub-tasks:
 Because the two networks have different weights, the action that looks best to one network
 is evaluated by an independent estimate, substantially reducing the upward bias.
 
-\subsubsection*{Code Change — One Line Difference}
+\subsubsection*{Code Change: One Line Difference}
 
 The only modification required in \texttt{train()} is inside the \texttt{torch.no\_grad()} block:
 
@@ -931,9 +958,9 @@ The standard 1-step TD target bootstraps from the very next state:
   y^{(1)} \;=\; r_t + \gamma\, Q_{\text{target}}(s_{t+1},\, a^*;\,\theta^-)
 \end{equation}
 
-Multi-step return accumulates $n$ consecutive rewards before bootstrapping,
-giving the agent a longer-horizon signal that reduces variance from
-the Q-value approximation and propagates rewards faster:
+Multi-step return accumulates $n$ consecutive rewards before bootstrapping.
+The resulting target has lower variance than single-step TD and carries reward
+information further back in fewer updates:
 
 \begin{equation}
   y^{(n)} \;=\;
@@ -950,7 +977,7 @@ where $R^{(n)} = \sum_{k=0}^{n-1} \gamma^k r_{t+k}$.
 The loss function and everything else remains identical;
 $\gamma^n$ replaces $\gamma$ in the target computation.
 
-\subsubsection*{Implementation — Sliding-Window Buffer per Environment}
+\subsubsection*{Implementation: Sliding-Window Buffer per Environment}
 
 Because multi-step transitions span $n$ consecutive steps,
 they must come from a single episode with no environment boundary in between.
@@ -1017,7 +1044,7 @@ wandb.init(project="DLP-Lab5-DQN-Pong", name=args.wandb_run_name, save_code=True
         Each call appends a dictionary of key-value pairs to the current run.
         Two logging points are used:
 
-        \textbf{Every 1,000 environment steps} — training health metrics:
+        Every 1,000 environment steps, training health metrics are logged:
 \begin{pycode}
 wandb.log({
     "Env Step Count": self.env_count,
@@ -1026,7 +1053,7 @@ wandb.log({
 })
 \end{pycode}
 
-        \textbf{Every episode end} — episode-level performance:
+        At the end of each episode, episode-level performance is logged:
 \begin{pycode}
 wandb.log({
     "Episode":        ep_count,
@@ -1037,8 +1064,8 @@ wandb.log({
 })
 \end{pycode}
 
-        \textbf{Every 20 episodes} — deterministic evaluation reward
-        (greedy policy, fixed seed \texttt{12345}, no $\varepsilon$-noise):
+        Every 20 episodes, the greedy policy is evaluated under a fixed seed
+        (\texttt{12345}, no $\varepsilon$-noise) and the result is logged:
 \begin{pycode}
 wandb.log({
     "Env Step Count": self.env_count,
@@ -1052,13 +1079,11 @@ wandb.finish()
 \end{pycode}
 \end{enumerate}
 
-The key distinction between \textbf{Total Reward} and \textbf{Eval Reward} is:
-\textit{Total Reward} is collected during training with $\varepsilon$-greedy exploration
-(noisy) and reflects how the agent is exploring;
-\textit{Eval Reward} is collected with the greedy policy under a fixed seed
-and reflects the true learned policy quality.
-Tracking both allows us to detect overestimation
-(high training reward but low eval reward) and monitor convergence stability.
+\textit{Total Reward} is collected during training under $\varepsilon$-greedy exploration,
+so it reflects exploration behaviour, not policy quality.
+\textit{Eval Reward} uses the greedy policy with a fixed seed and is the cleaner measure.
+Logging both makes it easy to spot overestimation: if training reward climbs but eval reward
+does not, the Q-values are inflated rather than the policy being genuinely better.
 
 \chapter{Analysis and Discussions}
 
@@ -1289,32 +1314,30 @@ task3-full + NoisyNet                & 16.85 & 18.65 & 19.00 & 19.20 & 18.45 \\
 \end{tabular}}
 \end{table}
 
-\textbf{Dueling DQN} is the weaker of the two additions.
-It scores only 11.40 at 600\,k steps --- more than 5 points behind \textit{task3-full} ---
-and peaks at 18.35 by 2.5\,M, never catching up.
-The non-monotonic trajectory (18.30 $\to$ 17.90 $\to$ 18.35) also hints at instability.
-The likely cause is an interaction between the dueling architecture and PER.
-Dueling splits $Q(s,a) = V(s) + A(s,a)$, so TD errors now reflect a mixture of errors in
-the value stream and the advantage stream.
-PER's priority mechanism was designed for a single scalar error; with two entangled sources
-of noise, the assigned priorities become less reliable, the replay distribution drifts, and
-early training is slower.
-Pong also has relatively few ``dead'' states where $V(s)$ dominates and advantages wash
-out --- the action choice is almost always consequential --- so the architecture provides
-little structural benefit to offset the added complexity.
+Adding Dueling DQN hurts the most.
+At 600\,k steps it scores only 11.40, more than 5 points below \textit{task3-full}, and
+by 2.5\,M it peaks at 18.35 without ever closing the gap.
+The trajectory between 1.5\,M and 2\,M (18.30 $\to$ 17.90) also suggests the policy
+is not stable after converging.
+The root cause is likely a conflict with PER.
+Dueling splits $Q(s,a) = V(s) + A(s,a)$, so each TD error reflects a mix of inaccuracy
+in the value stream and the advantage stream rather than a single clean signal.
+PER was designed assuming that TD error tracks how much a transition needs to be revisited;
+when that signal is noisy, priorities drift, the replay distribution skews, and early
+learning slows down.
+Pong compounds this: almost every state requires a decisive action, so the value stream
+$V(s)$ rarely dominates and the main benefit of dueling (factoring out state value from
+action advantage) barely applies.
 
-
-\textbf{NoisyNet} performs closer to the baseline but still lags throughout.
-It reaches 19.00 at 1.5\,M steps but plateaus around 19.20 while \textit{task3-full}
-continues climbing to 20.55.
-NoisyNet replaces the $\varepsilon$-greedy schedule with learnable per-weight noise,
-which works well when the exploration schedule is the bottleneck.
-Here, however, the $\varepsilon$ decay was already well-tuned for Pong, so NoisyNet
-buys little extra exploration benefit.
-More importantly, the stochastic forward passes add variance to the Q-value estimates
-used by PER to compute priorities, introducing noise into the very signal PER depends on
-to rank transitions.
-This likely explains the slower convergence and lower asymptotic score relative to the
-clean DDQN\,+\,PER\,+\,Multi-step combination.
+NoisyNet stays much closer to the baseline but still falls short.
+It reaches 19.00 at 1.5\,M and plateaus near 19.20, while \textit{task3-full} keeps
+climbing to 20.55.
+The idea behind NoisyNet is to replace the $\varepsilon$-greedy schedule with learnable
+per-weight noise, which works best when the exploration schedule itself is the bottleneck.
+In this setup the $\varepsilon$ decay was already well-tuned, so replacing it buys little.
+The more significant issue is that stochastic forward passes add variance to the
+Q-value estimates that PER uses to rank transitions.
+That variance corrupts the priority signal, and the replay distribution never gets
+as well-targeted as it does under the cleaner DDQN\,+\,PER\,+\,Multi-step baseline.
 
 \end{document}
