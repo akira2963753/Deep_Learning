@@ -42,6 +42,10 @@ def evaluate(args):
         num_actions,
         use_dueling=args.use_dueling,
         use_noisy_nets=args.use_noisy_nets,
+        use_c51=args.use_c51,
+        num_atoms=args.num_atoms,
+        v_min=args.v_min,
+        v_max=args.v_max,
     ).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device, weights_only=True))
     model.eval()  # NoisyLinear → deterministic (μ only), no noise during eval
@@ -64,7 +68,8 @@ def evaluate(args):
                 frames.append(env.render())
             state_tensor = torch.from_numpy(np.array(state)).float().unsqueeze(0).to(device)
             with torch.no_grad():
-                action = model(state_tensor).argmax().item()
+                out = model(state_tensor)
+                action = (model.get_q_values(out) if args.use_c51 else out).argmax().item()
             next_obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
             total_reward += reward
@@ -94,5 +99,9 @@ if __name__ == "__main__":
     # Must match the flags used during training
     parser.add_argument("--use-dueling",    action="store_true", help="Enable Dueling Network (must match training)")
     parser.add_argument("--use-noisy-nets", action="store_true", help="Enable Noisy Nets (must match training)")
+    parser.add_argument("--use-c51",        action="store_true", help="Enable C51 Distributional DQN (must match training)")
+    parser.add_argument("--num-atoms",      type=int,   default=51,    help="Number of C51 atoms (must match training)")
+    parser.add_argument("--v-min",          type=float, default=-10.0, help="C51 support minimum (must match training)")
+    parser.add_argument("--v-max",          type=float, default=10.0,  help="C51 support maximum (must match training)")
     args = parser.parse_args()
     evaluate(args)

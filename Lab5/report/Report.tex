@@ -646,24 +646,28 @@ PER $\varepsilon$ (priority floor) & $10^{-6}$ \\
 \caption{Ablation results at the 600\,k-step checkpoint.
          Each value in \emph{20-seed Eval Scores} is the mean episode reward averaged over 20 inference
          episodes under the greedy policy (three independent runs per configuration).
-         The \textbf{bolded} value in each row is the hyperparameter that differs from the baseline.}
+         The bolded value in each row is the hyperparameter that differs from the baseline.}
 \resizebox{\linewidth}{!}{%
 \begin{tabular}{clcccccc}
 \toprule
 \textbf{Run} & \textbf{Varied Parameter} & $n$\textbf{-step} & $\gamma$ & \textbf{RS} & \textbf{lr} & \textbf{20-seed Eval Scores} & \textbf{Mean} \\
 \midrule
-1 & Baseline               & 3          & 0.99          & 20\,k          & 0.00025         & 17.3 / 17.35 / 16.9  & 17.18 \\
-2 & $n$-step $= 5$         & \textbf{5} & 0.99          & 20\,k          & 0.00025         & 15.7 / 17.1 / 14.3   & 15.70 \\
-3 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025         & 10.25 / 12.5 / 11.4  & 11.38 \\
-4 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025         & 16.25 / 15.0 / 15.85 & 15.70 \\
-5 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.0003} & 16.4 / {14.3} / {15.5} & 15.4 \\
+1 & Baseline               & 3          & 0.99          & 20\,k          & 0.00025          & 17.30 / 17.35 / 16.90  & 17.18 \\
+2 & $n$-step $= 5$         & \textbf{5} & 0.99          & 20\,k          & 0.00025          & 15.70 / 17.10 / 14.30   & 15.70 \\
+3 & $\gamma = 0.97$        & 3          & \textbf{0.97} & 20\,k          & 0.00025          & 10.25 / 12.50 / 11.40  & 11.38 \\
+4 & Replay start 10\,k     & 3          & 0.99          & \textbf{10\,k} & 0.00025          & 16.25 / 15.00 / 15.85 & 15.70 \\
+5 & lr $= 3\times10^{-4}$  & 3          & 0.99          & 20\,k          & \textbf{0.00030} & 16.40 / 14.30 / 15.50   & 15.40 \\
+6 & StepLR scheduler       & 3          & 0.99          & 20\,k          & -                & 15.40 / 16.70 / 16.30   & 16.10 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
-\textit{RS} = Replay Start Size.
+\textbf{- RS} : Replay Start Size.
 
-Two additional strategies from Rainbow (Dueling networks and NoisyNet) were also evaluated
+\textbf{- StepLR scheduler} : the learning rate drops from $2.5\times10^{-4}$ to
+$1.5\times10^{-4}$ once the agent reaches 500\,k environment steps.
+
+\textbf{- Other strategies} : Two additional strategies from Rainbow (Dueling networks and NoisyNet) were also evaluated
 on top of the \textit{task3-full} baseline; results and analysis are in Section~3.5.
 
 
@@ -746,7 +750,7 @@ from the true bootstrapped target.
 In uniform experience replay, sampling from a \texttt{deque} of size $N$ costs $O(N)$.
 PER (Schaul et al.\ 2016) assigns each transition a \textbf{priority}
 $p_i = |\delta_i|^\alpha + \varepsilon$ and samples proportionally to these priorities.
-A naïve linear scan would still be $O(N)$, so PER uses a \textbf{SumTree} --- a binary
+A naïve linear scan would still be $O(N)$, so PER uses a \textbf{SumTree}, a binary
 segment tree where each internal node stores the sum of its descendants' priorities.
 This brings both insertion and sampling down to $O(\log N)$.
 
@@ -891,7 +895,7 @@ The $\max$ operator uses the \emph{same} target network for both
 (1) \textbf{selecting} the best next action and
 (2) \textbf{evaluating} its Q-value.
 Because function approximation errors are not symmetric,
-taking the max over noisy estimates is systematically biased upward ---
+taking the max over noisy estimates is systematically biased upward,
 a phenomenon known as \textbf{overestimation bias}.
 Over time this pushes Q-values higher than their true values,
 biasing the policy toward actions whose estimates happen to be the most inflated.
@@ -1106,8 +1110,8 @@ does not, the Q-values are inflated rather than the policy being genuinely bette
 \begin{figure}[h]
     \centering
     \includegraphics[width=\linewidth]{image1.png}
-    \caption{Enter Caption}
-    \label{fig:placeholder}
+    \caption{Evaluation results for Task~1 (CartPole-v1): 20-episode average reward over the best submitted model snapshot.}
+    \label{fig:eval-task1}
 \end{figure}
 
 
@@ -1138,8 +1142,8 @@ Substituting into the formula:
 \begin{figure}[h]
     \centering
     \includegraphics[width=1\linewidth]{image.png}
-    \caption{Enter Caption}
-    \label{fig:placeholder}
+    \caption{Evaluation results for Task~2 (Pong-v5, vanilla DQN): 20-episode average reward over the best submitted model snapshot.}
+    \label{fig:eval-task2}
 \end{figure}
 
 
@@ -1168,28 +1172,28 @@ Substituting into the formula:
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.78\linewidth]{image3.png}
-    \includegraphics[width=0.78\linewidth]{image4.png}
-    \includegraphics[width=0.78\linewidth]{image5.png}
-    \caption{Enter Caption}
-    \label{fig:placeholder}
-\end{figure}
-
-\begin{figure}[h]
-    \centering
-    \includegraphics[width=0.78\linewidth]{image6.png}
-    \includegraphics[width=0.78\linewidth]{image7.png}
-    \caption{Enter Caption}
-    \label{fig:placeholder}
+    \includegraphics[width=0.75\linewidth]{image3.png}
+    \includegraphics[width=0.75\linewidth]{image4.png}
+    \includegraphics[width=0.75\linewidth]{image5.png}
+    \caption{Evaluation results for Task~3 (Pong-v5, enhanced DQN) at 600\,k, 1\,M, and 1.5\,M environment steps}
+    \label{fig:eval-task3-a}
 \end{figure}
 
 \newpage
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\linewidth]{image6.png}
+    \includegraphics[width=0.75\linewidth]{image7.png}
+    \caption{Evaluation results for Task~3 at 2\,M and 2.5\,M environment steps}
+    \label{fig:eval-task3-b}
+\end{figure}
 
 The grading of Task~3 depends on \textbf{sample efficiency}: the fewer environment steps
 required to first reach an average score of 19, the higher the score percentage.
 The grading table from the spec is reproduced below:
 
-\begin{table}[H]
+\begin{table}[h]
 \centering
 \caption{Task~3 grading table (score percentage vs.\ environment steps to reach score 19).}
 {\setlength{\tabcolsep}{12pt}
@@ -1204,7 +1208,7 @@ Score percentage & 20\% & 17\% & 15\% & 13\% & 11\% & 8\% \\
 
 The 20-seed average evaluation scores at each milestone checkpoint are:
 
-\begin{table}[H]
+\begin{table}[h]
 \centering
 \caption{20-seed average evaluation reward at each Task~3 milestone checkpoint.}
 {\setlength{\tabcolsep}{14pt}
@@ -1233,11 +1237,14 @@ According to the grading table, this corresponds to a score percentage of $\math
     \label{fig:sample-efficiency}
 \end{figure}
 
-\textit{task3-full} crosses score 19 around 600\,k steps and stays there.
-\textit{task3-none} takes over 2\,M steps to reach the same level --- roughly $3\times$
-slower --- and collapses twice along the way due to uncorrected overestimation bias.
-PER and multi-step return account for most of the speed gain;
-DDQN keeps the converged policy stable over the long run.
+\textit{task3-full} first crosses score 19 at around 1\,M steps and keeps climbing,
+reaching 20.55 by 2.5\,M.
+\textit{task3-none} needs over 2\,M steps to reach a comparable level and collapses
+twice along the way due to uncorrected overestimation bias.
+The gap at 600\,k is particularly stark: \textit{task3-full} already scores 17.35
+while \textit{task3-none} is still near zero.
+PER and multi-step return drive most of the early speed gain;
+DDQN contributes mainly by keeping the converged policy stable rather than by accelerating initial learning.
 
 \newpage
 
@@ -1253,11 +1260,11 @@ DDQN keeps the converged policy stable over the long run.
 
 Each technique is tested in isolation against the full stack (Figure~\ref{fig:ablation}).
 \textit{task3-multi-step} nearly matches \textit{task3-full} on its own, reaching score 19
-by $\sim$500\,k steps --- multi-step return is the biggest individual driver of sample efficiency.
+by $\sim$500\,k steps; multi-step return is the biggest individual driver of sample efficiency.
 \textit{task3-per} converges around 1\,M steps with moderate variance, a solid but clearly
 secondary contribution.
 \textit{task3-ddqn} alone is the weakest: it barely climbs above 13 by 2.5\,M steps and
-collapses twice, showing that DDQN does not accelerate early learning on its own ---
+collapses twice, showing that DDQN does not accelerate early learning on its own;
 its role is stabilising the policy once the other techniques have gotten it off the ground.
 Together, the three techniques address different bottlenecks: multi-step for speed,
 PER for sample coverage, DDQN for long-run stability.
@@ -1294,8 +1301,10 @@ Both fall short of \textit{task3-full} at every checkpoint.
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.75\linewidth]{W&B Chart 2026_4_30 下午6_56_59.png}
-    \caption{Enter Caption}
-    \label{fig:placeholder}
+    \caption{Evaluation reward vs.\ environment steps for the bonus configurations
+             (\textit{task3-full + Dueling} and \textit{task3-full + NoisyNet})
+             against the \textit{task3-full} baseline on Pong-v5.}
+    \label{fig:bonus-curves}
 \end{figure}
 
 \begin{table}[H]

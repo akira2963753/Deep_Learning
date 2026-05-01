@@ -92,14 +92,23 @@ class DQN(nn.Module):
         - Feel free to change the architecture (e.g. number of hidden layers and the width of each hidden layer) as you like
         - Feel free to add any member variables/functions whenever needed
     """
-    def __init__(self, input_shape, num_actions, use_dueling=False, use_noisy_nets=False):
+    def __init__(self, input_shape, num_actions,
+                 use_dueling=False, use_noisy_nets=False,
+                 use_c51=False, num_atoms=51, v_min=-10.0, v_max=10.0):
         super(DQN, self).__init__()
         ########## YOUR CODE HERE (5~10 lines) ##########
         self.is_atari       = (len(input_shape) == 3)
         self.use_dueling    = use_dueling
         self.use_noisy_nets = use_noisy_nets
+        self.use_c51        = use_c51
+        self.num_atoms      = num_atoms
+        self.num_actions    = num_actions
+        # support: fixed atom values z_0..z_{N-1}, travels with model to GPU
+        self.register_buffer('support', torch.linspace(v_min, v_max, num_atoms))
         # Switch FC layer type: NoisyLinear for learned exploration, nn.Linear for ε-greedy
         Lin = NoisyLinear if use_noisy_nets else nn.Linear
+        # C51: last layer outputs num_actions * num_atoms instead of num_actions
+        out_size = num_actions * num_atoms if use_c51 else num_actions
 
         if self.is_atari: # For Task 2, 3
             in_channels = input_shape[0]
@@ -117,27 +126,28 @@ class DQN(nn.Module):
                 conv_out_size = self.conv(dummy).shape[1]
 
             if use_dueling:
-                # Dueling: separate value and advantage streams after shared conv
+                # C51 dueling: value outputs N atoms, advantage outputs A*N atoms
+                v_out = num_atoms if use_c51 else 1
                 self.value_stream = nn.Sequential(
                     Lin(conv_out_size, 512),
                     nn.ReLU(),
-                    Lin(512, 1),
+                    Lin(512, v_out),
                 )
                 self.advantage_stream = nn.Sequential(
                     Lin(conv_out_size, 512),
                     nn.ReLU(),
-                    Lin(512, num_actions),
+                    Lin(512, out_size),
                 )
             else:
                 self.fc = nn.Sequential(
                     Lin(conv_out_size, 512),
                     nn.ReLU(),
-                    Lin(512, num_actions),
+                    Lin(512, out_size),
                 )
         else: # For Task 1
             in_features = input_shape[0]
             if use_dueling:
-                # Shared feature extractor, then split into V and A streams
+                v_out = num_atoms if use_c51 else 1
                 self.shared = nn.Sequential(
                     Lin(in_features, 128),
                     nn.ReLU(),
@@ -145,12 +155,12 @@ class DQN(nn.Module):
                 self.value_stream = nn.Sequential(
                     Lin(128, 128),
                     nn.ReLU(),
-                    Lin(128, 1),
+                    Lin(128, v_out),
                 )
                 self.advantage_stream = nn.Sequential(
                     Lin(128, 128),
                     nn.ReLU(),
-                    Lin(128, num_actions),
+                    Lin(128, out_size),
                 )
             else:
                 self.network = nn.Sequential(
@@ -158,7 +168,7 @@ class DQN(nn.Module):
                     nn.ReLU(),
                     Lin(128, 128),
                     nn.ReLU(),
-                    Lin(128, num_actions),
+                    Lin(128, out_size),
                 )
         ########## END OF YOUR CODE ##########
 
@@ -168,23 +178,38 @@ class DQN(nn.Module):
             if isinstance(m, NoisyLinear):
                 m.reset_noise()
 
+    def get_q_values(self, logits):
+        """C51: convert (B, A, N) logits → (B, A) expected Q-values for action selection."""
+        return (logits.softmax(dim=-1) * self.support).sum(dim=-1)
+
     def forward(self, x):
+        A, N = self.num_actions, self.num_atoms
         if self.is_atari:
             x = x / 255.0
             features = self.conv(x)
             if self.use_dueling:
-                value = self.value_stream(features)          # (B, 1)
-                advantage = self.advantage_stream(features)  # (B, A)
-                # Subtract mean advantage to keep identifiability of V and A
-                return value + advantage - advantage.mean(dim=1, keepdim=True)
-            return self.fc(features)
+                v = self.value_stream(features)    # (B, N) or (B, 1)
+                a = self.advantage_stream(features) # (B, A*N) or (B, A)
+                if self.use_c51:
+                    v = v.view(-1, 1, N)           # (B, 1, N)
+                    a = a.view(-1, A, N)           # (B, A, N)
+                    # Combine in logit space; softmax applied later
+                    return v + a - a.mean(dim=1, keepdim=True)  # (B, A, N)
+                return v + a - a.mean(dim=1, keepdim=True)      # (B, A)
+            out = self.fc(features)
+            return out.view(-1, A, N) if self.use_c51 else out  # (B,A,N) or (B,A)
         else:
             if self.use_dueling:
                 features = self.shared(x)
-                value = self.value_stream(features)
-                advantage = self.advantage_stream(features)
-                return value + advantage - advantage.mean(dim=1, keepdim=True)
-            return self.network(x)
+                v = self.value_stream(features)
+                a = self.advantage_stream(features)
+                if self.use_c51:
+                    v = v.view(-1, 1, N)
+                    a = a.view(-1, A, N)
+                    return v + a - a.mean(dim=1, keepdim=True)  # (B, A, N)
+                return v + a - a.mean(dim=1, keepdim=True)      # (B, A)
+            out = self.network(x)
+            return out.view(-1, A, N) if self.use_c51 else out  # (B,A,N) or (B,A)
 
 
 class AtariPreprocessor:
@@ -413,11 +438,19 @@ class DQNAgent:
 
         use_dueling    = args.use_dueling    if hasattr(args, 'use_dueling')    else False
         use_noisy_nets = args.use_noisy_nets if hasattr(args, 'use_noisy_nets') else False
+        self.use_c51   = args.use_c51        if hasattr(args, 'use_c51')        else False
+        self.num_atoms = args.num_atoms       if hasattr(args, 'num_atoms')      else 51
+        self.v_min     = args.v_min           if hasattr(args, 'v_min')          else -10.0
+        self.v_max     = args.v_max           if hasattr(args, 'v_max')          else 10.0
         self.q_net = DQN(input_shape, self.num_actions,
-                         use_dueling=use_dueling, use_noisy_nets=use_noisy_nets).to(self.device)
+                         use_dueling=use_dueling, use_noisy_nets=use_noisy_nets,
+                         use_c51=self.use_c51, num_atoms=self.num_atoms,
+                         v_min=self.v_min, v_max=self.v_max).to(self.device)
         self.q_net.apply(init_weights)
         self.target_net = DQN(input_shape, self.num_actions,
-                              use_dueling=use_dueling, use_noisy_nets=use_noisy_nets).to(self.device)
+                              use_dueling=use_dueling, use_noisy_nets=use_noisy_nets,
+                              use_c51=self.use_c51, num_atoms=self.num_atoms,
+                              v_min=self.v_min, v_max=self.v_max).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=args.lr, eps=1.5e-4)
 
@@ -442,6 +475,7 @@ class DQNAgent:
         self.use_multistep = args.use_multistep   if hasattr(args, 'use_multistep')   else False
         self.use_dueling   = args.use_dueling     if hasattr(args, 'use_dueling')     else False
         self.use_noisy_nets = args.use_noisy_nets if hasattr(args, 'use_noisy_nets') else False
+        # use_c51 / num_atoms / v_min / v_max already stored above (before DQN construction)
         # n_step=1 when multistep disabled → gamma^1 = gamma, identical to vanilla
         self.n_step        = (args.n_step if hasattr(args, 'n_step') else 1) if self.use_multistep else 1
 
@@ -491,7 +525,8 @@ class DQNAgent:
             return random.randint(0, self.num_actions - 1)
         state_tensor = torch.from_numpy(np.array(state)).unsqueeze(0).to(self.device).float()
         with torch.no_grad():
-            q_values = self.q_net(state_tensor)
+            out = self.q_net(state_tensor)
+            q_values = self.q_net.get_q_values(out) if self.use_c51 else out
         return q_values.argmax().item()
 
     def select_action_batch(self, states_list):
@@ -502,7 +537,9 @@ class DQNAgent:
                 return [random.randint(0, self.num_actions - 1) for _ in range(N)]
         batch = torch.from_numpy(np.stack(states_list)).to(self.device).float()
         with torch.no_grad():
-            greedy_actions = self.q_net(batch).argmax(dim=1).cpu().numpy().tolist()
+            out = self.q_net(batch)
+            q_vals = self.q_net.get_q_values(out) if self.use_c51 else out
+            greedy_actions = q_vals.argmax(dim=1).cpu().numpy().tolist()
         if self.use_noisy_nets:
             return greedy_actions
         return [
@@ -723,6 +760,47 @@ class DQNAgent:
                     "Epsilon": self.epsilon
                 })
 
+    def _c51_loss(self, states, actions, rewards, next_states, dones):
+        """C51 Bellman projection + cross-entropy loss. Returns (B,) per-sample loss."""
+        B = states.size(0)
+        N = self.num_atoms
+        support = self.q_net.support  # (N,)
+
+        # Current log-probabilities for the taken actions
+        logits = self.q_net(states)                          # (B, A, N)
+        log_p  = logits[range(B), actions].log_softmax(-1)  # (B, N)
+
+        with torch.no_grad():
+            # Select next action: DDQN uses online net, vanilla uses target net
+            if self.use_ddqn:
+                next_actions = self.q_net.get_q_values(self.q_net(next_states)).argmax(1)
+            else:
+                next_actions = self.q_net.get_q_values(self.target_net(next_states)).argmax(1)
+
+            # Target distribution from target net
+            next_logits = self.target_net(next_states)                    # (B, A, N)
+            next_probs  = next_logits[range(B), next_actions].softmax(-1) # (B, N)
+
+            # Bellman projection onto fixed support
+            gamma_n = self.gamma ** self.n_step
+            Tz = rewards.unsqueeze(1) + gamma_n * (1 - dones.unsqueeze(1)) * support  # (B, N)
+            Tz = Tz.clamp(self.v_min, self.v_max)
+
+            delta_z = (self.v_max - self.v_min) / (N - 1)
+            b = (Tz - self.v_min) / delta_z        # (B, N) float atom index
+            l = b.floor().long().clamp(0, N - 1)   # (B, N)
+            u = b.ceil().long().clamp(0, N - 1)    # (B, N)
+
+            # Distribute probability mass to neighbouring atoms
+            m = torch.zeros(B, N, device=self.device)
+            offset = torch.arange(B, device=self.device).unsqueeze(1) * N
+            m.view(-1).scatter_add_(0, (l + offset).view(-1),
+                                    (next_probs * (u.float() - b)).view(-1))
+            m.view(-1).scatter_add_(0, (u + offset).view(-1),
+                                    (next_probs * (b - l.float())).view(-1))
+
+        return -(m * log_p).sum(dim=-1)  # (B,) cross-entropy per sample
+
     def evaluate(self):
         self.q_net.eval()  # NoisyLinear uses deterministic μ in eval mode
         obs, _ = self.test_env.reset(seed=12345)
@@ -733,7 +811,8 @@ class DQNAgent:
         while not done:
             state_tensor = torch.from_numpy(np.array(state)).unsqueeze(0).to(self.device).float()
             with torch.no_grad():
-                action = self.q_net(state_tensor).argmax().item()
+                out = self.q_net(state_tensor)
+                action = (self.q_net.get_q_values(out) if self.use_c51 else out).argmax().item()
             next_obs, reward, terminated, truncated, _ = self.test_env.step(action)
             done = terminated or truncated
             total_reward += reward
@@ -781,50 +860,69 @@ class DQNAgent:
             dones       = torch.tensor(dones_, dtype=torch.float32).to(self.device)
         ########## END OF YOUR CODE ##########
 
-        q_values = self.q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        ########## YOUR CODE HERE (~10 lines) ##########
-        # Implement the loss function of DQN and the gradient updates
-        with torch.no_grad():
-            if self.use_ddqn:
-                # Double DQN: online net selects action, target net evaluates Q value.
-                # Decoupling reduces overestimation bias present in vanilla DQN.
-                next_actions  = self.q_net(next_states).argmax(1, keepdim=True)
-                next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)
+        if self.use_c51:
+            # ── C51: Bellman projection + cross-entropy ──
+            loss_per_sample = self._c51_loss(states, actions, rewards, next_states, dones)
+            if self.use_per:
+                loss = (per_weights * loss_per_sample).mean()
+                # Use cross-entropy magnitude as PER priority (proxy for TD error)
+                self.memory.update_priorities(per_indices,
+                                              loss_per_sample.detach().cpu().numpy())
             else:
-                next_q_values = self.target_net(next_states).max(1)[0]
-
-            # Multi-step: discount over n steps since rewards already accumulates n-step return.
-            # When use_multistep=False, n_step=1 so gamma^1 = gamma (vanilla behavior).
-            gamma_n         = self.gamma ** self.n_step
-            target_q_values = rewards + gamma_n * next_q_values * (1 - dones)
-
-        td_errors = q_values - target_q_values  # shape: (batch_size,)
-
-        if self.use_per:
-            # PER weighted loss: IS weights correct the bias from non-uniform sampling
-            loss = (per_weights * td_errors ** 2).mean()
-            # Update SumTree priorities with latest TD errors
-            self.memory.update_priorities(per_indices, td_errors.detach().abs().cpu().numpy())
+                loss = loss_per_sample.mean()
         else:
-            loss = nn.functional.mse_loss(q_values, target_q_values)
+            # ── Vanilla / DDQN: MSE on expected Q-values (original logic unchanged) ──
+            q_values = self.q_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
+
+            ########## YOUR CODE HERE (~10 lines) ##########
+            # Implement the loss function of DQN and the gradient updates
+            with torch.no_grad():
+                if self.use_ddqn:
+                    # Double DQN: online net selects action, target net evaluates Q value.
+                    # Decoupling reduces overestimation bias present in vanilla DQN.
+                    next_actions  = self.q_net(next_states).argmax(1, keepdim=True)
+                    next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)
+                else:
+                    next_q_values = self.target_net(next_states).max(1)[0]
+
+                # Multi-step: discount over n steps since rewards already accumulates n-step return.
+                # When use_multistep=False, n_step=1 so gamma^1 = gamma (vanilla behavior).
+                gamma_n         = self.gamma ** self.n_step
+                target_q_values = rewards + gamma_n * next_q_values * (1 - dones)
+
+            td_errors = q_values - target_q_values  # shape: (batch_size,)
+
+            if self.use_per:
+                # PER weighted loss: IS weights correct the bias from non-uniform sampling
+                loss = (per_weights * td_errors ** 2).mean()
+                # Update SumTree priorities with latest TD errors
+                self.memory.update_priorities(per_indices, td_errors.detach().abs().cpu().numpy())
+            else:
+                loss = nn.functional.mse_loss(q_values, target_q_values)
+            ########## END OF YOUR CODE ##########
 
         self.optimizer.zero_grad()
         loss.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), 10.0)
         self.optimizer.step()
-        ########## END OF YOUR CODE ##########
 
         if self.train_count % self.target_update_frequency == 0:
             self.target_net.load_state_dict(self.q_net.state_dict())
 
-        # NOTE: Enable this part if "loss" is defined
         if self.train_count % 1000 == 0:
             current_lr = self.optimizer.param_groups[0]['lr']
-            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_values.mean().item():.3f} std: {q_values.std().item():.3f} Grad norm: {grad_norm:.4f} LR: {current_lr:.2e}")
+            if self.use_c51:
+                with torch.no_grad():
+                    q_vals = self.q_net.get_q_values(self.q_net(states))
+                q_mean = q_vals.mean().item()
+                q_std  = q_vals.std().item()
+            else:
+                q_mean = q_values.mean().item()
+                q_std  = q_values.std().item()
+            print(f"[Train #{self.train_count}] Loss: {loss.item():.4f} Q mean: {q_mean:.3f} std: {q_std:.3f} Grad norm: {grad_norm:.4f} LR: {current_lr:.2e}")
             wandb.log({
                 "Train Loss": loss.item(),
-                "Q Mean": q_values.mean().item(),
+                "Q Mean": q_mean,
                 "Learning Rate": current_lr,
                 "Update Count": self.train_count,
             })
@@ -859,6 +957,10 @@ if __name__ == "__main__":
     parser.add_argument("--use-dueling",    action="store_true", help="Enable Dueling Network")
     parser.add_argument("--use-ddqn",       action="store_true", help="Enable Double DQN")
     parser.add_argument("--use-noisy-nets", action="store_true", help="Enable Noisy Nets (replaces epsilon-greedy)")
+    parser.add_argument("--use-c51",        action="store_true", help="Enable C51 Distributional DQN")
+    parser.add_argument("--num-atoms",      type=int,   default=51,    help="C51 number of atoms")
+    parser.add_argument("--v-min",          type=float, default=-10.0, help="C51 support minimum (use -21 for Pong)")
+    parser.add_argument("--v-max",          type=float, default=10.0,  help="C51 support maximum (use +21 for Pong)")
     parser.add_argument("--use-per",       action="store_true", help="Enable Prioritized Experience Replay")
     parser.add_argument("--use-multistep", action="store_true", help="Enable n-step return (requires --num-envs > 1)")
     parser.add_argument("--n-step",        type=int,   default=3,   help="Steps for multi-step return")
