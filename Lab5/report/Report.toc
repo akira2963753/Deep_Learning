@@ -19,3 +19,7 @@
 \contentsline {section}{\numberline {3.3}Analyze the sample efficiency with and without the DQN enhancements}{22}{section.3.3}%
 \contentsline {section}{\numberline {3.4}Ablation study}{23}{section.3.4}%
 \contentsline {section}{\numberline {3.5}Additional analysis on other training strategies (Bonus)}{24}{section.3.5}%
+\contentsline {subsection}{\numberline {3.5.1}Dueling DQN}{24}{subsection.3.5.1}%
+\contentsline {subsection}{\numberline {3.5.2}NoisyNet}{25}{subsection.3.5.2}%
+\contentsline {subsection}{\numberline {3.5.3}Distributional DQN (C51)}{25}{subsection.3.5.3}%
+\contentsline {subsection}{\numberline {3.5.4}Summary}{26}{subsection.3.5.4}%

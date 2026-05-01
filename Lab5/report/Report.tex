@@ -1300,7 +1300,7 @@ Both fall short of \textit{task3-full} at every checkpoint.
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.75\linewidth]{W&B Chart 2026_4_30 下午6_56_59.png}
+    \includegraphics[width=0.75\linewidth]{W&B Chart 2026_5_1 下午6_09_04}
     \caption{Evaluation reward vs.\ environment steps for the bonus configurations
              (\textit{task3-full + Dueling} and \textit{task3-full + NoisyNet})
              against the \textit{task3-full} baseline on Pong-v5.}
@@ -1319,10 +1319,12 @@ Both fall short of \textit{task3-full} at every checkpoint.
 task3-full (DDQN + PER + Multi-step) & 17.35 & 19.35 & 19.45 & 19.75 & 20.55 \\
 task3-full + Dueling                 & 11.40 & 14.80 & 18.30 & 17.90 & 18.35 \\
 task3-full + NoisyNet                & 16.85 & 18.65 & 19.00 & 19.20 & 18.45 \\
+task3-full + Distributional          & $-17.30$ & 10.10 & 16.65 & 17.05 & 18.35 \\
 \bottomrule
 \end{tabular}}
 \end{table}
 
+\subsection{Dueling DQN}
 Adding Dueling DQN hurts the most.
 At 600\,k steps it scores only 11.40, more than 5 points below \textit{task3-full}, and
 by 2.5\,M it peaks at 18.35 without ever closing the gap.
@@ -1338,6 +1340,27 @@ Pong compounds this: almost every state requires a decisive action, so the value
 $V(s)$ rarely dominates and the main benefit of dueling (factoring out state value from
 action advantage) barely applies.
 
+\newpage
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\linewidth]{W&B Chart 2026_5_1 上午11_14_09}
+    \caption{Evaluation reward vs.\ environment steps for the bonus configurations
+             (\textit{task3-full + Dueling(lr=0.00025)} against the \textit{task3-full + Dueling(lr=0.00018)})
+             on Pong-v5.}
+    \label{fig:bonus-curves-dueling}
+\end{figure}
+
+We also investigated whether an overly high learning rate was responsible for Dueling's
+weaker performance.
+As shown in Figure~\ref{fig:bonus-curves-dueling}, learning rate does affect both
+convergence speed and training stability: the higher setting ($\text{lr} = 2.5\times10^{-4}$)
+converges faster but with larger variance, while the lower setting ($\text{lr} = 1.8\times10^{-4}$)
+is more stable in the later stages at the cost of slower initial learning.
+Final performance is similar in both cases, suggesting that learning rate is not the
+primary bottleneck for Dueling on Pong.
+
+\subsection{NoisyNet}
 NoisyNet stays much closer to the baseline but still falls short.
 It reaches 19.00 at 1.5\,M and plateaus near 19.20, while \textit{task3-full} keeps
 climbing to 20.55.
@@ -1348,5 +1371,41 @@ The more significant issue is that stochastic forward passes add variance to the
 Q-value estimates that PER uses to rank transitions.
 That variance corrupts the priority signal, and the replay distribution never gets
 as well-targeted as it does under the cleaner DDQN\,+\,PER\,+\,Multi-step baseline.
+
+\subsection{Distributional DQN (C51)}
+C51 converges noticeably slower than the baseline on Pong,
+needing roughly 1.2\,M steps to reach a comparable score against around 300\,k for
+\textit{task3-full}, and its final average of 18.35 stays below the baseline's 20.55.
+The likely cause is that Pong's reward structure is too simple for distributional
+modelling to help: each rally yields only $+1$ or $-1$, so the value distribution
+is close to unimodal and MSE loss already captures it well.
+The cross-entropy loss used by C51 needs substantially more samples to calibrate the
+probabilities across 51 atoms, which hurts sample efficiency without providing any
+representational benefit.
+The advantage of distributional RL is expected to show up in environments with
+sparser or more stochastic rewards, such as Montezuma's Revenge, where the richer
+return distribution genuinely cannot be summarised by a single scalar.
+
+\newpage
+
+\subsection{Summary}
+The Task~3 baseline was trained under aggressive hyperparameters chosen to converge
+quickly within a limited step budget: $\text{lr} = 2.5\times10^{-4}$, PER $\beta$
+annealing completed at 600\,k environment steps, and a fast $\varepsilon$ decay schedule.
+These settings may have affected how fairly Dueling, NoisyNet, and C51 were evaluated,
+as each component might behave differently under more conservative hyperparameters.
+That said, all bonus experiments used the same baseline configuration to keep the
+comparison consistent.
+
+The results also point to an important observation about environment fit.
+In a relatively simple environment like Pong, Dueling Network and C51 do not improve
+performance and actually slow convergence.
+This aligns with the conclusion of the Rainbow paper: the benefit of each component
+is highly environment-dependent.
+In games with straightforward reward structure and a small action space, architectural
+additions struggle to show an advantage.
+NoisyNet is the partial exception here; by improving exploration efficiency it shows
+the clearest positive effect among the three, even if it still falls short of the
+unmodified baseline at the 2.5\,M-step mark.
 
 \end{document}
