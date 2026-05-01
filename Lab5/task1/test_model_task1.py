@@ -5,7 +5,7 @@ import gymnasium as gym
 import imageio
 import os
 import argparse
-from dqn import DQN, CartPolePreprocessor
+from dqn_task1 import DQN, CartPolePreprocessor
 
 def evaluate(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

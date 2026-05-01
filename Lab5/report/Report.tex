@@ -743,6 +743,79 @@ in Prioritized Experience Replay (Task~3): transitions with larger $|\delta_i|$ 
 more frequently, since they represent cases where the Q-network's prediction is furthest
 from the true bootstrapped target.
 
+\subsection*{Q2: How to Modify DQN to Double DQN?}
+
+\subsubsection*{Motivation: Overestimation Bias in Vanilla DQN}
+
+In vanilla DQN, the TD target is computed as:
+
+\begin{equation}
+  y^{\text{DQN}} \;=\; r + \gamma\,\max_{a'} Q_{\text{target}}(s', a';\,\theta^-)
+\end{equation}
+
+The $\max$ operator uses the \emph{same} target network for both
+(1) \textbf{selecting} the best next action and
+(2) \textbf{evaluating} its Q-value.
+Because function approximation errors are not symmetric,
+taking the max over noisy estimates is systematically biased upward,
+a phenomenon known as \textbf{overestimation bias}.
+Over time this pushes Q-values higher than their true values,
+biasing the policy toward actions whose estimates happen to be the most inflated.
+
+\subsubsection*{Double DQN Fix: Decouple Selection and Evaluation}
+
+Double DQN (van Hasselt et al., 2016) resolves this by using \emph{two different networks}
+for the two sub-tasks:
+
+\begin{itemize}[leftmargin=1.8em]
+  \item \textbf{Action selection}: the \emph{online} network $\theta$ picks the greedy action:
+  \[
+    a^* \;=\; \arg\max_{a'}\, Q(s', a';\,\theta)
+  \]
+  \item \textbf{Q-value evaluation}: the \emph{target} network $\theta^-$ scores that action:
+  \[
+    y^{\text{DDQN}} \;=\; r + \gamma\; Q_{\text{target}}\!\bigl(s',\, a^*;\,\theta^-\bigr)
+  \]
+\end{itemize}
+
+Because the two networks have different weights, the action that looks best to one network
+is evaluated by an independent estimate, substantially reducing the upward bias.
+
+\subsubsection*{Code Change: One Line Difference}
+
+The only modification required in \texttt{train()} is inside the \texttt{torch.no\_grad()} block:
+
+\begin{pycode}
+with torch.no_grad():
+    if self.use_ddqn:
+        # Double DQN: online net selects action, target net evaluates Q-value
+        next_actions  = self.q_net(next_states).argmax(1, keepdim=True)      # (B,1)
+        next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)  # (B,)
+    else:
+        # Vanilla DQN: target net both selects and evaluates
+        next_q_values = self.target_net(next_states).max(1)[0]
+
+    target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
+\end{pycode}
+
+\subsubsection*{Summary}
+
+\begin{center}
+{\setlength{\tabcolsep}{14pt}
+\begin{tabular}{lll}
+\toprule
+ & \textbf{Vanilla DQN} & \textbf{Double DQN} \\
+\midrule
+Action selection & target network $\theta^-$ & online network $\theta$ \\
+Q-value scoring  & target network $\theta^-$ & target network $\theta^-$ \\
+Target formula   & $r + \gamma\max_{a'} Q_{\text{target}}(s',a')$ & $r + \gamma\, Q_{\text{target}}(s', \arg\max_{a'}Q(s',a'))$ \\
+Bias             & overestimation            & reduced \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\newpage
+
 \subsection*{Q3: How to Implement the Memory Buffer for PER?}
 
 \subsubsection*{Why a Special Data Structure?}
@@ -798,6 +871,8 @@ class SumTree:
     def total(self):
         return float(self.tree[0])
 \end{pycode}
+
+\newpage
 
 \subsubsection*{PrioritizedReplayBuffer}
 
@@ -878,79 +953,6 @@ if self.use_per:
 else:
     loss = nn.functional.mse_loss(q_values, target_q_values)
 \end{pycode}
-
-\newpage
-
-\subsection*{Q2: How to Modify DQN to Double DQN?}
-
-\subsubsection*{Motivation: Overestimation Bias in Vanilla DQN}
-
-In vanilla DQN, the TD target is computed as:
-
-\begin{equation}
-  y^{\text{DQN}} \;=\; r + \gamma\,\max_{a'} Q_{\text{target}}(s', a';\,\theta^-)
-\end{equation}
-
-The $\max$ operator uses the \emph{same} target network for both
-(1) \textbf{selecting} the best next action and
-(2) \textbf{evaluating} its Q-value.
-Because function approximation errors are not symmetric,
-taking the max over noisy estimates is systematically biased upward,
-a phenomenon known as \textbf{overestimation bias}.
-Over time this pushes Q-values higher than their true values,
-biasing the policy toward actions whose estimates happen to be the most inflated.
-
-\subsubsection*{Double DQN Fix: Decouple Selection and Evaluation}
-
-Double DQN (van Hasselt et al., 2016) resolves this by using \emph{two different networks}
-for the two sub-tasks:
-
-\begin{itemize}[leftmargin=1.8em]
-  \item \textbf{Action selection}: the \emph{online} network $\theta$ picks the greedy action:
-  \[
-    a^* \;=\; \arg\max_{a'}\, Q(s', a';\,\theta)
-  \]
-  \item \textbf{Q-value evaluation}: the \emph{target} network $\theta^-$ scores that action:
-  \[
-    y^{\text{DDQN}} \;=\; r + \gamma\; Q_{\text{target}}\!\bigl(s',\, a^*;\,\theta^-\bigr)
-  \]
-\end{itemize}
-
-Because the two networks have different weights, the action that looks best to one network
-is evaluated by an independent estimate, substantially reducing the upward bias.
-
-\subsubsection*{Code Change: One Line Difference}
-
-The only modification required in \texttt{train()} is inside the \texttt{torch.no\_grad()} block:
-
-\begin{pycode}
-with torch.no_grad():
-    if self.use_ddqn:
-        # Double DQN: online net selects action, target net evaluates Q-value
-        next_actions  = self.q_net(next_states).argmax(1, keepdim=True)      # (B,1)
-        next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)  # (B,)
-    else:
-        # Vanilla DQN: target net both selects and evaluates
-        next_q_values = self.target_net(next_states).max(1)[0]
-
-    target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
-\end{pycode}
-
-\subsubsection*{Summary}
-
-\begin{center}
-{\setlength{\tabcolsep}{14pt}
-\begin{tabular}{lll}
-\toprule
- & \textbf{Vanilla DQN} & \textbf{Double DQN} \\
-\midrule
-Action selection & target network $\theta^-$ & online network $\theta$ \\
-Q-value scoring  & target network $\theta^-$ & target network $\theta^-$ \\
-Target formula   & $r + \gamma\max_{a'} Q_{\text{target}}(s',a')$ & $r + \gamma\, Q_{\text{target}}(s', \arg\max_{a'}Q(s',a'))$ \\
-Bias             & overestimation            & reduced \\
-\bottomrule
-\end{tabular}}
-\end{center}
 
 \subsection*{Q4: How to Modify 1-Step Return to Multi-Step Return?}
 
