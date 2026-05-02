@@ -164,9 +164,10 @@ Task~1 achieves an average evaluation score of 500 (full-credit threshold: 480).
 Task~2 reaches 19.20.
 Task~3 first crosses score~19 at the 1\,M-step checkpoint, roughly $3\times$ faster
 than a vanilla DQN baseline that requires over 2\,M steps to reach the same level.
-As a bonus, Dueling networks and NoisyNet were each added on top of the Task~3 baseline;
-both performed worse, with the degradation tracing to interference between these
-architectures and the PER priority mechanism.
+As a bonus, Dueling networks and NoisyNet were each stacked on the Task~3 baseline; neither
+beat the baseline at the same checkpoints. For Dueling, a follow-up with PER disabled
+tracked the PER-on run almost exactly, so the gap is unlikely to be a PER--architecture
+interaction.
 
 \subsubsection*{Report Organization}
 
@@ -1327,40 +1328,45 @@ task3-full + Distributional          & $-17.30$ & 10.10 & 16.65 & 17.05 & 18.35 
 \end{table}
 
 \subsection{Dueling DQN}
-Adding Dueling DQN hurts the most.
-At 600\,k steps it scores only 11.40, more than 5 points below \textit{task3-full}, and
-by 2.5\,M it peaks at 18.35 without ever closing the gap.
-The trajectory between 1.5\,M and 2\,M (18.30 $\to$ 17.90) also suggests the policy
-is not stable after converging.
-The root cause is likely a conflict with PER.
-Dueling splits $Q(s,a) = V(s) + A(s,a)$, so each TD error reflects a mix of inaccuracy
-in the value stream and the advantage stream rather than a single clean signal.
-PER was designed assuming that TD error tracks how much a transition needs to be revisited;
-when that signal is noisy, priorities drift, the replay distribution skews, and early
-learning slows down.
-Pong compounds this: almost every state requires a decisive action, so the value stream
-$V(s)$ rarely dominates and the main benefit of dueling (factoring out state value from
-action advantage) barely applies.
+Stacking Dueling on \textit{task3-full} lags the baseline at every milestone in
+Table~\ref{tab:ablation-milestones}: 11.40 vs.\ 17.35 at 600\,k, and 18.35 vs.\ 20.55 by
+2.5\,M. Between 1.5\,M and 2\,M the score even dips (18.30 to 17.90), so the run never
+really settles.
+
+We first guessed that PER might be the problem. With
+$Q(s,a) = V(s) + A(s,a)$, TD errors no longer come from a single head, and we worried that
+PER's priorities would track the wrong thing. To test that, we left Dueling, DDQN,
+multi-step, and $\text{lr} = 2.5\times10^{-4}$ alone, and compared \textit{task3-full + Dueling}
+(with PER) to a run with PER switched off (W\&B: \textit{task3-noPER + Dueling}).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.75\linewidth]{W&B Chart 2026_5_2 下午6_49_14}
+    \caption{Eval reward vs.\ env steps: Dueling with PER (grey) vs.\ Dueling without PER
+             (purple), same $\text{lr}=2.5\times10^{-4}$.}
+    \label{fig:dueling-per-ablation}
+\end{figure}
+
+The two lines in Figure~\ref{fig:dueling-per-ablation} sit on top of each other. Dropping PER
+does not fix the gap in Table~\ref{tab:ablation-milestones}, so we drop the story that PER
+and Dueling ``fight'' each other. What seems more likely is that the CNN plus DDQN and
+multi-step already carries almost everything Pong needs, and Dueling mostly adds parameters
+without a payoff on this task. Eval is one Pong episode at a time, so the curves are noisy
+anyway. We did not try other losses or learning-rate grids here.
 
 \newpage
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.75\linewidth]{W&B Chart 2026_5_1 上午11_14_09}
-    \caption{Evaluation reward vs.\ environment steps for the bonus configurations
-             (\textit{task3-full + Dueling(lr=0.00025)} against the \textit{task3-full + Dueling(lr=0.00018)})
-             on Pong-v5.}
+    \caption{Same Dueling stack, two learning rates ($2.5\times10^{-4}$ vs.\ $1.8\times10^{-4}$).}
     \label{fig:bonus-curves-dueling}
 \end{figure}
 
-We also investigated whether an overly high learning rate was responsible for Dueling's
-weaker performance.
-As shown in Figure~\ref{fig:bonus-curves-dueling}, learning rate does affect both
-convergence speed and training stability: the higher setting ($\text{lr} = 2.5\times10^{-4}$)
-converges faster but with larger variance, while the lower setting ($\text{lr} = 1.8\times10^{-4}$)
-is more stable in the later stages at the cost of slower initial learning.
-Final performance is similar in both cases, suggesting that learning rate is not the
-primary bottleneck for Dueling on Pong.
+Figure~\ref{fig:bonus-curves-dueling} changes the learning rate only. The higher one learns
+faster early on but wobbles more; the lower one is calmer later but slower out of the gate.
+End-game reward lands in the same band, so tuning $\text{lr}$ alone does not close the
+distance to plain \textit{task3-full} either.
 
 \subsection{NoisyNet}
 NoisyNet stays much closer to the baseline but still falls short.
@@ -1388,8 +1394,6 @@ The advantage of distributional RL is expected to show up in environments with
 sparser or more stochastic rewards, such as Montezuma's Revenge, where the richer
 return distribution genuinely cannot be summarised by a single scalar.
 
-\newpage
-
 \subsection{Summary}
 The Task~3 baseline was trained under aggressive hyperparameters chosen to converge
 quickly within a limited step budget: $\text{lr} = 2.5\times10^{-4}$, PER $\beta$
@@ -1399,15 +1403,11 @@ as each component might behave differently under more conservative hyperparamete
 That said, all bonus experiments used the same baseline configuration to keep the
 comparison consistent.
 
-The results also point to an important observation about environment fit.
-In a relatively simple environment like Pong, Dueling Network and C51 do not improve
-performance and actually slow convergence.
-This aligns with the conclusion of the Rainbow paper: the benefit of each component
-is highly environment-dependent.
-In games with straightforward reward structure and a small action space, architectural
-additions struggle to show an advantage.
-NoisyNet is the partial exception here; by improving exploration efficiency it shows
-the clearest positive effect among the three, even if it still falls short of the
-unmodified baseline at the 2.5\,M-step mark.
+On Pong, the extra pieces do not pay off uniformly. A follow-up run showed that Dueling
+without PER tracks Dueling with PER almost exactly, so the earlier guess about PER was
+wrong; the miss is mostly that the baseline already fits this game well. C51 still trains
+slower than scalar DQN here. That matches what Rainbow reports: tricks help some games and
+do little on others. NoisyNet stays closest to \textit{task3-full} among the three, but even
+it ends below the baseline at 2.5\,M steps.
 
 \end{document}

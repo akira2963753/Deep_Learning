@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.4.30)  1 MAY 2026 19:03
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.4.30)  2 MAY 2026 21:21
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -1054,15 +1054,15 @@ Chapter 1.
 {C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/ebgaramond/ebg_dacnth.enc}]
 Chapter 2.
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/n' will be
-(Font)              scaled to size 17.28pt on input line 180.
+(Font)              scaled to size 17.28pt on input line 181.
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/b/n' will be
-(Font)              scaled to size 17.28pt on input line 180.
-LaTeX Font Info:    Trying to load font information for TS1+EBGaramond-LF on input line 190.
+(Font)              scaled to size 17.28pt on input line 181.
+LaTeX Font Info:    Trying to load font information for TS1+EBGaramond-LF on input line 191.
 (C:\Users\harry\AppData\Local\Programs\MiKTeX\tex/latex/ebgaramond\ts1ebgaramond-lf.fd
 File: TS1EBGaramond-LF.fd 2023/03/19 (autoinst) Font definitions for TS1/EBGaramond-LF.
 )
 LaTeX Font Info:    Font shape `TS1/EBGaramond-LF/m/n' will be
-(Font)              scaled to size 12.0pt on input line 190.
+(Font)              scaled to size 12.0pt on input line 191.
 Package microtype Info: Character `textthreeoldstyle ' is missing
 (microtype)             in font `TS1/EBGaramond-LF/m/n/12'.
 (microtype)             Ignoring protrusion settings for this character.
@@ -1082,15 +1082,15 @@ Package microtype Info: Character `texttildelow ' is missing
 (microtype)             in font `TS1/EBGaramond-LF/m/n/12'.
 (microtype)             Ignoring protrusion settings for this character.
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/n' will be
-(Font)              scaled to size 8.8pt on input line 190.
+(Font)              scaled to size 8.8pt on input line 191.
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/n' will be
-(Font)              scaled to size 6.6pt on input line 190.
-LaTeX Font Info:    Trying to load font information for T1+zi4 on input line 191.
+(Font)              scaled to size 6.6pt on input line 191.
+LaTeX Font Info:    Trying to load font information for T1+zi4 on input line 192.
  (C:\Users\harry\AppData\Local\Programs\MiKTeX\tex/latex/inconsolata\t1zi4.fd
 File: t1zi4.fd 2018/01/14 T1/zi4 (Inconsolata)
 )
 LaTeX Font Info:    Font shape `T1/zi4/m/n' will be
-(Font)              scaled to size 11.03998pt on input line 191.
+(Font)              scaled to size 11.03998pt on input line 192.
 Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `zi4' (encoding: T1).
 (microtype)             For optimal results, create family-specific settings.
@@ -1102,7 +1102,7 @@ Package microtype Info: Loading generic protrusion settings for font family
 File: lstlang1.sty 2025/11/14 1.11b listings language file
 )
 LaTeX Font Info:    Font shape `T1/zi4/m/n' will be
-(Font)              scaled to size 7.35999pt on input line 235.
+(Font)              scaled to size 7.35999pt on input line 236.
  (Report.listing
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/n' will be
 (Font)              scaled to size 8.0pt on input line 1.
@@ -1116,7 +1116,7 @@ LaTeX Font Info:    Font shape `T1/zi4/b/n' will be
 \openout6 = `Report.listing'.
 
  (Report.listing)
-Underfull \hbox (badness 2245) in paragraph at lines 272--275
+Underfull \hbox (badness 2245) in paragraph at lines 273--276
 []\T1/EBGaramond-LF/m/n/12 (+20) Compute the TD tar-get with the tar-get net-work (in-side \T1/zi4/m/n/12 torch.no_grad()\T1/EBGaramond-LF/m/n/12 (+20) ): $\OML/ntxmi/m/it/12 y \U/ntxmia/m/it/12 = \OML/ntxmi/m/it/12 r \LMS/ntxsy/m/n/12 � \OML/ntxmi/m/it/12 ^^M \LMS/ntxsy/m/n/12 ^^A
  []
 
@@ -1133,7 +1133,7 @@ LaTeX Font Info:    Font shape `T1/zi4/m/it' will be
 \openout6 = `Report.listing'.
 
  (Report.listing)
-Underfull \hbox (badness 3503) in paragraph at lines 398--400
+Underfull \hbox (badness 3503) in paragraph at lines 399--401
 []\T1/EBGaramond-LF/b/n/12 (+20) Grayscale con-ver-sion\T1/EBGaramond-LF/m/n/12 (+20) : re-duce the 3-channel RGB im-age to a sin-gle lu-mi-nance chan-nel via
  []
 
@@ -1143,10 +1143,10 @@ Underfull \hbox (badness 3503) in paragraph at lines 398--400
 pdfTeX warning (ext4): destination with the same identifier (name{table.2.1}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.462 \newpage
+l.463 \newpage
               ]
 LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/it' will be
-(Font)              scaled to size 12.0pt on input line 471.
+(Font)              scaled to size 12.0pt on input line 472.
 \openout6 = `Report.listing'.
 
  (Report.listing)
@@ -1174,12 +1174,12 @@ LaTeX Font Info:    Font shape `T1/EBGaramond-LF/m/it' will be
 pdfTeX warning (ext4): destination with the same identifier (name{table.2.2}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.674 \newpage
+l.675 \newpage
               
 pdfTeX warning (ext4): destination with the same identifier (name{table.2.3}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.674 \newpage
+l.675 \newpage
               ]
 \openout6 = `Report.listing'.
 
@@ -1230,17 +1230,17 @@ Chapter 3.
 <W&B Chart 2026_4_28 下午12_11_37.png, id=536, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_4_28 下午12_11_37.png Graphic file (type png)
 <use W&B Chart 2026_4_28 下午12_11_37.png>
-Package pdftex.def Info: W&B Chart 2026_4_28 下午12_11_37.png  used on input line 1100.
+Package pdftex.def Info: W&B Chart 2026_4_28 下午12_11_37.png  used on input line 1101.
 (pdftex.def)             Requested size: 321.79753pt x 169.02216pt.
 <W&B Chart 2026_4_29 上午11_50_41.png, id=538, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_4_29 上午11_50_41.png Graphic file (type png)
 <use W&B Chart 2026_4_29 上午11_50_41.png>
-Package pdftex.def Info: W&B Chart 2026_4_29 上午11_50_41.png  used on input line 1101.
+Package pdftex.def Info: W&B Chart 2026_4_29 上午11_50_41.png  used on input line 1102.
 (pdftex.def)             Requested size: 321.79753pt x 169.02216pt.
 <W&B Chart 2026_4_29 上午11_48_20.png, id=539, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_4_29 上午11_48_20.png Graphic file (type png)
 <use W&B Chart 2026_4_29 上午11_48_20.png>
-Package pdftex.def Info: W&B Chart 2026_4_29 上午11_48_20.png  used on input line 1102.
+Package pdftex.def Info: W&B Chart 2026_4_29 上午11_48_20.png  used on input line 1103.
 (pdftex.def)             Requested size: 321.79753pt x 169.02216pt.
 [17
 
@@ -1248,137 +1248,151 @@ Package pdftex.def Info: W&B Chart 2026_4_29 上午11_48_20.png  used on input l
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.1}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1107 \newpage
+l.1108 \newpage
                 <./W&B Chart 2026_4_28 下午12_11_37.png> <./W&B Chart 2026_4_29 上午11_50_41.png> <./W&B Chart 2026_4_29 上午11_48_20.png>]
 <image1.png, id=548, 1060.71281pt x 454.69875pt>
 File: image1.png Graphic file (type png)
 <use image1.png>
-Package pdftex.def Info: image1.png  used on input line 1114.
+Package pdftex.def Info: image1.png  used on input line 1115.
 (pdftex.def)             Requested size: 495.07779pt x 212.2306pt.
 LaTeX Font Info:    Font shape `OT1/EBGaramond-LF/b/n' will be
-(Font)              scaled to size 12.0pt on input line 1129.
+(Font)              scaled to size 12.0pt on input line 1130.
 LaTeX Font Info:    Font shape `OT1/EBGaramond-LF/b/n' will be
-(Font)              scaled to size 8.8pt on input line 1129.
+(Font)              scaled to size 8.8pt on input line 1130.
 LaTeX Font Info:    Font shape `OT1/EBGaramond-LF/b/n' will be
-(Font)              scaled to size 6.6pt on input line 1129.
+(Font)              scaled to size 6.6pt on input line 1130.
  [18
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.2}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1140 \newpage
+l.1141 \newpage
                 <./image1.png>]
 <image.png, id=558, 1109.64563pt x 487.8225pt>
 File: image.png Graphic file (type png)
 <use image.png>
-Package pdftex.def Info: image.png  used on input line 1146.
+Package pdftex.def Info: image.png  used on input line 1147.
 (pdftex.def)             Requested size: 495.07779pt x 217.64232pt.
  [19
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.3}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1171 \newpage
+l.1172 \newpage
                 <./image.png>]
 <image3.png, id=566, 1121.69063pt x 510.40688pt>
 File: image3.png Graphic file (type png)
 <use image3.png>
-Package pdftex.def Info: image3.png  used on input line 1177.
+Package pdftex.def Info: image3.png  used on input line 1178.
 (pdftex.def)             Requested size: 371.30833pt x 168.95659pt.
 <image4.png, id=567, 1119.43219pt x 509.65407pt>
 File: image4.png Graphic file (type png)
 <use image4.png>
-Package pdftex.def Info: image4.png  used on input line 1178.
+Package pdftex.def Info: image4.png  used on input line 1179.
 (pdftex.def)             Requested size: 371.30833pt x 169.04956pt.
 <image5.png, id=568, 1120.9378pt x 510.40688pt>
 File: image5.png Graphic file (type png)
 <use image5.png>
-Package pdftex.def Info: image5.png  used on input line 1179.
+Package pdftex.def Info: image5.png  used on input line 1180.
 (pdftex.def)             Requested size: 371.30833pt x 169.07341pt.
  [20
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.4}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1184 \newpage
+l.1185 \newpage
                 <./image3.png> <./image4.png> <./image5.png>]
 <image6.png, id=577, 1123.94907pt x 506.6428pt>
 File: image6.png Graphic file (type png)
 <use image6.png>
-Package pdftex.def Info: image6.png  used on input line 1188.
+Package pdftex.def Info: image6.png  used on input line 1189.
 (pdftex.def)             Requested size: 371.30833pt x 167.37045pt.
 <image7.png, id=578, 1120.9378pt x 508.14844pt>
 File: image7.png Graphic file (type png)
 <use image7.png>
-Package pdftex.def Info: image7.png  used on input line 1189.
+Package pdftex.def Info: image7.png  used on input line 1190.
 (pdftex.def)             Requested size: 371.30833pt x 168.3253pt.
  [21
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.5}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1229 \newpage
+l.1230 \newpage
                
 pdfTeX warning (ext4): destination with the same identifier (name{table.3.1}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1229 \newpage
+l.1230 \newpage
                
 pdfTeX warning (ext4): destination with the same identifier (name{table.3.2}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1229 \newpage
+l.1230 \newpage
                 <./image6.png> <./image7.png>]
 <W&B Chart 2026_4_29 下午5_18_44.png, id=588, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_4_29 下午5_18_44.png Graphic file (type png)
 <use W&B Chart 2026_4_29 下午5_18_44.png>
-Package pdftex.def Info: W&B Chart 2026_4_29 下午5_18_44.png  used on input line 1235.
+Package pdftex.def Info: W&B Chart 2026_4_29 下午5_18_44.png  used on input line 1236.
 (pdftex.def)             Requested size: 371.30833pt x 195.04669pt.
  [22
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.6}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1251 \newpage
+l.1252 \newpage
                 <./W&B Chart 2026_4_29 下午5_18_44.png>]
 <W&B Chart 2026_4_29 下午10_51_33.png, id=595, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_4_29 下午10_51_33.png Graphic file (type png)
 <use W&B Chart 2026_4_29 下午10_51_33.png>
-Package pdftex.def Info: W&B Chart 2026_4_29 下午10_51_33.png  used on input line 1256.
+Package pdftex.def Info: W&B Chart 2026_4_29 下午10_51_33.png  used on input line 1257.
 (pdftex.def)             Requested size: 371.30833pt x 195.04669pt.
  [23
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.7}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1295 \newpage
+l.1296 \newpage
                
 pdfTeX warning (ext4): destination with the same identifier (name{table.3.3}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1295 \newpage
+l.1296 \newpage
                 <./W&B Chart 2026_4_29 下午10_51_33.png>]
 <W&B Chart 2026_5_1 下午6_09_04.png, id=605, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_5_1 下午6_09_04.png Graphic file (type png)
 <use W&B Chart 2026_5_1 下午6_09_04.png>
-Package pdftex.def Info: W&B Chart 2026_5_1 下午6_09_04.png  used on input line 1305.
+Package pdftex.def Info: W&B Chart 2026_5_1 下午6_09_04.png  used on input line 1306.
 (pdftex.def)             Requested size: 371.30833pt x 195.04669pt.
- [24
+<W&B Chart 2026_5_2 下午6_49_14.png, id=607, 3806.22pt x 1999.47pt>
+File: W&B Chart 2026_5_2 下午6_49_14.png Graphic file (type png)
+<use W&B Chart 2026_5_2 下午6_49_14.png>
+Package pdftex.def Info: W&B Chart 2026_5_2 下午6_49_14.png  used on input line 1344.
+(pdftex.def)             Requested size: 371.30833pt x 195.04669pt.
+
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+[24
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.8}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1345 \newpage
+l.1357 \newpage
                
 pdfTeX warning (ext4): destination with the same identifier (name{table.3.4}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1345 \newpage
+l.1357 \newpage
                 <./W&B Chart 2026_5_1 下午6_09_04.png>]
-<W&B Chart 2026_5_1 上午11_14_09.png, id=614, 3806.22pt x 1999.47pt>
+<W&B Chart 2026_5_1 上午11_14_09.png, id=619, 3806.22pt x 1999.47pt>
 File: W&B Chart 2026_5_1 上午11_14_09.png Graphic file (type png)
 <use W&B Chart 2026_5_1 上午11_14_09.png>
-Package pdftex.def Info: W&B Chart 2026_5_1 上午11_14_09.png  used on input line 1349.
+Package pdftex.def Info: W&B Chart 2026_5_1 上午11_14_09.png  used on input line 1361.
 (pdftex.def)             Requested size: 371.30833pt x 195.04669pt.
  [25
 pdfTeX warning (ext4): destination with the same identifier (name{figure.3.9}) has been already used, duplicate ignored
 <argument> ...shipout:D \box_use:N \l_shipout_box 
                                                   \__shipout_drop_firstpage_...
-l.1391 \newpage
-                <./W&B Chart 2026_5_1 上午11_14_09.png>] [26] (Report.aux)
+l.1396 
+       
+pdfTeX warning (ext4): destination with the same identifier (name{figure.3.10}) has been already used, duplicate ignored
+<argument> ...shipout:D \box_use:N \l_shipout_box 
+                                                  \__shipout_drop_firstpage_...
+l.1396 
+        <./W&B Chart 2026_5_2 下午6_49_14.png> <./W&B Chart 2026_5_1 上午11_14_09.png>] [26] (Report.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-03-20>
@@ -1391,17 +1405,17 @@ Package rerunfilecheck Info: File `Report.out' has not changed.
 (rerunfilecheck)             Checksum: 6ECC2913E5A533E8CA42FF5633D0DFBC;3903.
  ) 
 Here is how much of TeX's memory you used:
- 37748 strings out of 467691
- 771594 string characters out of 5414987
- 1651865 words of memory out of 5000000
- 65466 multiletter control sequences out of 15000+600000
- 821392 words of font info for 320 fonts, out of 8000000 for 9000
+ 37766 strings out of 467691
+ 772226 string characters out of 5414987
+ 1651910 words of memory out of 5000000
+ 65478 multiletter control sequences out of 15000+600000
+ 821799 words of font info for 323 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  98i,11n,108p,1054b,1935s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/ebgaramond/EBGaramond-Bold.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/ebgaramond/EBGaramond-Italic.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/ebgaramond/EBGaramond-Regular.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/inconsolata/Inconsolata-zi4b.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/inconsolata/Inconsolata-zi4r.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/newtx/NewTXMI.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/newtx/txexas.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/newtx/txexs.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/newtx/txmiaX.pfb><C:/Users/harry/AppData/Local/Programs/MiKTeX/fonts/type1/public/newtx/txsys.pfb>
-Output written on Report.pdf (27 pages, 6720386 bytes).
+Output written on Report.pdf (27 pages, 7375974 bytes).
 PDF statistics:
- 760 PDF objects out of 1000 (max. 8388607)
- 390 named destinations out of 1000 (max. 500000)
- 86811 words of extra memory for PDF output out of 89155 (max. 10000000)
+ 767 PDF objects out of 1000 (max. 8388607)
+ 391 named destinations out of 1000 (max. 500000)
+ 86816 words of extra memory for PDF output out of 89155 (max. 10000000)
 
