@@ -1,1 +1,4 @@
-wandb.finish()
+python test_model_task3.py \
+  --model_path ../LAB5_M11407439_task3_1000000.pt \
+  --episodes 20 \
+  --seed 0

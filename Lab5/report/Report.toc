@@ -11,15 +11,21 @@
 \contentsline {subsection}{\numberline {2.3.2}Implementation Details}{8}{subsection.2.3.2}%
 \contentsline {section}{\numberline {2.4}Question Answering}{11}{section.2.4}%
 \contentsline {chapter}{\numberline {3}Analysis and Discussions}{17}{chapter.3}%
-\contentsline {section}{\numberline {3.1}Evaluation score versus environment steps}{17}{section.3.1}%
-\contentsline {section}{\numberline {3.2}Evaluation Results}{18}{section.3.2}%
-\contentsline {subsection}{\numberline {3.2.1}Task 1}{18}{subsection.3.2.1}%
-\contentsline {subsection}{\numberline {3.2.2}Task 2}{19}{subsection.3.2.2}%
-\contentsline {subsection}{\numberline {3.2.3}Task 3}{20}{subsection.3.2.3}%
-\contentsline {section}{\numberline {3.3}Analyze the sample efficiency with and without the DQN enhancements}{22}{section.3.3}%
-\contentsline {section}{\numberline {3.4}Ablation study}{23}{section.3.4}%
-\contentsline {section}{\numberline {3.5}Additional analysis on other training strategies (Bonus)}{24}{section.3.5}%
-\contentsline {subsection}{\numberline {3.5.1}Dueling DQN}{24}{subsection.3.5.1}%
-\contentsline {subsection}{\numberline {3.5.2}NoisyNet}{25}{subsection.3.5.2}%
-\contentsline {subsection}{\numberline {3.5.3}Distributional DQN (C51)}{26}{subsection.3.5.3}%
-\contentsline {subsection}{\numberline {3.5.4}Summary}{26}{subsection.3.5.4}%
+\contentsline {section}{\numberline {3.1}How to Run the Code}{17}{section.3.1}%
+\contentsline {subsection}{\numberline {3.1.1}Training}{17}{subsection.3.1.1}%
+\contentsline {subsection}{\numberline {3.1.2}Evaluation}{18}{subsection.3.1.2}%
+\contentsline {section}{\numberline {3.2}Evaluation score versus environment steps}{19}{section.3.2}%
+\contentsline {section}{\numberline {3.3}Evaluation Results}{20}{section.3.3}%
+\contentsline {subsection}{\numberline {3.3.1}Task 1}{20}{subsection.3.3.1}%
+\contentsline {subsection}{\numberline {3.3.2}Task 2}{21}{subsection.3.3.2}%
+\contentsline {subsection}{\numberline {3.3.3}Task 3}{22}{subsection.3.3.3}%
+\contentsline {section}{\numberline {3.4}Analyze the sample efficiency with and without the DQN enhancements}{24}{section.3.4}%
+\contentsline {paragraph}{Overall convergence speed.}{24}{table.3.3}%
+\contentsline {paragraph}{Early-phase analysis (0--600\,k steps).}{24}{table.3.3}%
+\contentsline {paragraph}{Stability analysis.}{24}{table.3.3}%
+\contentsline {section}{\numberline {3.5}Ablation study}{25}{section.3.5}%
+\contentsline {section}{\numberline {3.6}Additional analysis on other training strategies (Bonus)}{26}{section.3.6}%
+\contentsline {subsection}{\numberline {3.6.1}Dueling DQN}{26}{subsection.3.6.1}%
+\contentsline {subsection}{\numberline {3.6.2}NoisyNet}{27}{subsection.3.6.2}%
+\contentsline {subsection}{\numberline {3.6.3}Distributional DQN (C51)}{28}{subsection.3.6.3}%
+\contentsline {subsection}{\numberline {3.6.4}Summary}{28}{subsection.3.6.4}%
