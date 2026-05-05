@@ -1,3 +1,4 @@
+import argparse
 import math
 import random
 from pathlib import Path
@@ -28,22 +29,24 @@ CKPT_LATEST   = CKPT_DIR / 'latest.pth'
 CKPT_BEST     = CKPT_DIR / 'best.pth'
 
 # ─────────────────────────────────────────────
-# Hyperparameters
+# Default hyperparameters
 # ─────────────────────────────────────────────
 
-BATCH_SIZE     = 64
-LR             = 2e-4
-WEIGHT_DECAY   = 1e-4
-NUM_EPOCHS     = 300
-WARMUP_STEPS   = 500
-GRAD_CLIP      = 1.0
-EMA_DECAY      = 0.9999
-VAL_EVERY      = 10    # epochs
-SAVE_EVERY     = 10    # epochs
-DDIM_STEPS     = 200
-GUIDANCE_SCALE = 0.0
-LOG_EVERY      = 50    # steps
-SEED           = 42
+DEFAULT_BATCH_SIZE     = 32
+DEFAULT_LR             = 2e-4
+DEFAULT_WEIGHT_DECAY   = 1e-4
+DEFAULT_NUM_EPOCHS     = 300
+DEFAULT_WARMUP_STEPS   = 500
+DEFAULT_GRAD_CLIP      = 1.0
+DEFAULT_EMA_DECAY      = 0.9999
+DEFAULT_VAL_EVERY      = 10    # epochs
+DEFAULT_SAVE_EVERY     = 10    # epochs
+DEFAULT_DDIM_STEPS     = 200
+DEFAULT_GUIDANCE_SCALE = 0.0
+DEFAULT_LOG_EVERY      = 50    # steps
+DEFAULT_SEED           = 42
+DEFAULT_TIMESTEPS      = 1000
+DEFAULT_NUM_WORKERS    = 0
 
 
 # ─────────────────────────────────────────────
@@ -125,12 +128,14 @@ def run_validation(
     evaluator,
     test_cond: torch.Tensor,
     new_test_cond: torch.Tensor,
+    ddim_steps: int,
+    guidance_scale: float,
 ) -> tuple:
     unet.eval()
     ema.apply_shadow(unet)
     try:
-        gen_test = ddpm.ddim_sample(test_cond,     n_steps=DDIM_STEPS, guidance_scale=GUIDANCE_SCALE)
-        gen_new  = ddpm.ddim_sample(new_test_cond, n_steps=DDIM_STEPS, guidance_scale=GUIDANCE_SCALE)
+        gen_test = ddpm.ddim_sample(test_cond,     n_steps=ddim_steps, guidance_scale=guidance_scale)
+        gen_new  = ddpm.ddim_sample(new_test_cond, n_steps=ddim_steps, guidance_scale=guidance_scale)
         acc_test = evaluator.eval(gen_test, test_cond)
         acc_new  = evaluator.eval(gen_new,  new_test_cond)
     finally:
@@ -151,11 +156,35 @@ def set_seed(seed: int) -> None:
 
 
 # ─────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Train conditional DDPM on i-CLEVR')
+    parser.add_argument('--batch_size', type=int, default=DEFAULT_BATCH_SIZE)
+    parser.add_argument('--lr', type=float, default=DEFAULT_LR)
+    parser.add_argument('--weight_decay', type=float, default=DEFAULT_WEIGHT_DECAY)
+    parser.add_argument('--num_epochs', type=int, default=DEFAULT_NUM_EPOCHS)
+    parser.add_argument('--warmup_steps', type=int, default=DEFAULT_WARMUP_STEPS)
+    parser.add_argument('--grad_clip', type=float, default=DEFAULT_GRAD_CLIP)
+    parser.add_argument('--ema_decay', type=float, default=DEFAULT_EMA_DECAY)
+    parser.add_argument('--val_every', type=int, default=DEFAULT_VAL_EVERY)
+    parser.add_argument('--save_every', type=int, default=DEFAULT_SAVE_EVERY)
+    parser.add_argument('--ddim_steps', type=int, default=DEFAULT_DDIM_STEPS)
+    parser.add_argument('--guidance_scale', type=float, default=DEFAULT_GUIDANCE_SCALE)
+    parser.add_argument('--log_every', type=int, default=DEFAULT_LOG_EVERY)
+    parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
+    parser.add_argument('--timesteps', type=int, default=DEFAULT_TIMESTEPS)
+    parser.add_argument('--num_workers', type=int, default=DEFAULT_NUM_WORKERS)
+    return parser.parse_args()
+
+
+# ─────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────
 
-def main() -> None:
-    set_seed(SEED)
+def main(args: argparse.Namespace) -> None:
+    set_seed(args.seed)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     use_amp = device.type == 'cuda'
     print(f"Device: {device}  AMP: {use_amp}")
@@ -170,9 +199,9 @@ def main() -> None:
     )
     train_loader = DataLoader(
         train_ds,
-        batch_size=BATCH_SIZE,
+        batch_size=args.batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=args.num_workers,
         pin_memory=True,
         drop_last=True,
     )
@@ -193,19 +222,19 @@ def main() -> None:
         dropout=0.1,
     ).to(device)
 
-    ddpm = DDPM(unet, T=1000).to(device)
-    ema  = EMA(unet, decay=EMA_DECAY)
+    ddpm = DDPM(unet, T=args.timesteps).to(device)
+    ema  = EMA(unet, decay=args.ema_decay)
 
     # ── Optimizer / Scheduler / Scaler ──────
     optimizer    = torch.optim.AdamW(
-        unet.parameters(), lr=LR, weight_decay=WEIGHT_DECAY, betas=(0.9, 0.999)
+        unet.parameters(), lr=args.lr, weight_decay=args.weight_decay, betas=(0.9, 0.999)
     )
-    total_steps  = NUM_EPOCHS * len(train_loader)
+    total_steps  = args.num_epochs * len(train_loader)
 
     def lr_lambda(current_step: int) -> float:
-        if current_step < WARMUP_STEPS:
-            return current_step / max(1, WARMUP_STEPS)
-        progress = (current_step - WARMUP_STEPS) / max(1, total_steps - WARMUP_STEPS)
+        if current_step < args.warmup_steps:
+            return current_step / max(1, args.warmup_steps)
+        progress = (current_step - args.warmup_steps) / max(1, total_steps - args.warmup_steps)
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
     scheduler = LambdaLR(optimizer, lr_lambda)
@@ -245,7 +274,7 @@ def main() -> None:
     print(f"Train batches/epoch: {len(train_loader)}")
 
     # ── Training ────────────────────────────
-    for epoch in range(start_epoch, NUM_EPOCHS):
+    for epoch in range(start_epoch, args.num_epochs):
         unet.train()
         epoch_loss  = 0.0
         num_batches = 0
@@ -261,7 +290,7 @@ def main() -> None:
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            clip_grad_norm_(unet.parameters(), GRAD_CLIP)
+            clip_grad_norm_(unet.parameters(), args.grad_clip)
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
@@ -271,7 +300,7 @@ def main() -> None:
             num_batches += 1
             global_step += 1
 
-            if global_step % LOG_EVERY == 0:
+            if global_step % args.log_every == 0:
                 avg_loss = epoch_loss / num_batches
                 cur_lr   = scheduler.get_last_lr()[0]
                 print(f"[Epoch {epoch:03d} | Step {global_step:6d}] "
@@ -281,9 +310,10 @@ def main() -> None:
         print(f"=== Epoch {epoch:03d} done | avg_loss={avg_epoch_loss:.4f} ===")
 
         # ── Validation ──────────────────────
-        if evaluator is not None and ((epoch + 1) % VAL_EVERY == 0 or epoch == NUM_EPOCHS - 1):
+        if evaluator is not None and ((epoch + 1) % args.val_every == 0 or epoch == args.num_epochs - 1):
             acc_test, acc_new = run_validation(
-                ddpm, unet, ema, evaluator, test_cond, new_test_cond
+                ddpm, unet, ema, evaluator, test_cond, new_test_cond,
+                ddim_steps=args.ddim_steps, guidance_scale=args.guidance_scale,
             )
             print(f"  [Val] test_acc={acc_test:.4f}  new_test_acc={acc_new:.4f}")
 
@@ -297,7 +327,7 @@ def main() -> None:
                 print(f"  [Best] New best! avg_acc={best_acc:.4f}")
 
         # ── Save latest ─────────────────────
-        if (epoch + 1) % SAVE_EVERY == 0 or epoch == NUM_EPOCHS - 1:
+        if (epoch + 1) % args.save_every == 0 or epoch == args.num_epochs - 1:
             save_checkpoint(
                 CKPT_LATEST, unet, ema, optimizer, scheduler, scaler,
                 epoch, global_step, best_acc, acc_test, acc_new, is_best=False,
@@ -307,4 +337,4 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-    main()
+    main(parse_args())
