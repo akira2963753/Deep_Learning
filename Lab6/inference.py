@@ -1,3 +1,4 @@
+import argparse
 import json
 from pathlib import Path
 
@@ -63,7 +64,7 @@ def save_grid(images: torch.Tensor, path: Path, nrow: int = 8) -> None:
     ).save(path)
 
 
-def load_model(device: torch.device) -> tuple:
+def load_model(device: torch.device, use_ema: bool = True) -> tuple:
     unet = UNet(
         in_channels=3, base_channels=64, channel_mults=[1, 2, 4, 4],
         num_res_blocks=2, emb_dim=256, num_classes=24, dropout=0.1,
@@ -73,8 +74,12 @@ def load_model(device: torch.device) -> tuple:
 
     ckpt = torch.load(CKPT_BEST, map_location=device, weights_only=True)
     unet.load_state_dict(ckpt['model'])
-    ema.shadow = {k: v.to(device) for k, v in ckpt['ema_shadow'].items()}
-    ema.apply_shadow(unet)   # use EMA weights for inference (never restored)
+    if use_ema:
+        ema.shadow = {k: v.to(device) for k, v in ckpt['ema_shadow'].items()}
+        ema.apply_shadow(unet)
+        print("Weights: EMA")
+    else:
+        print("Weights: raw (no EMA)")
     unet.eval()
 
     epoch = ckpt.get('epoch', '?')
@@ -92,12 +97,24 @@ def load_conditions(json_path: Path, obj_json_path: Path, device: torch.device) 
 # Main
 # ─────────────────────────────────────────────
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description='Run inference for conditional DDPM')
+    parser.add_argument('--no_ema', action='store_true',
+                        help='Use raw checkpoint weights instead of EMA weights')
+    parser.add_argument('--ddim_steps', type=int, default=DDIM_STEPS,
+                        help=f'Number of DDIM sampling steps (default: {DDIM_STEPS})')
+    parser.add_argument('--guidance_scale', type=float, default=GUIDANCE_SCALE,
+                        help='Classifier guidance scale (default: 0.0 = disabled)')
+    return parser.parse_args()
+
+
 def main() -> None:
+    args      = parse_args()
     device    = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     evaluator = evaluation_model()
     print(f"Device: {device}")
 
-    ddpm, unet, ema = load_model(device)
+    ddpm, unet, ema = load_model(device, use_ema=not args.no_ema)
 
     test_cond     = load_conditions(TEST_JSON,     OBJ_JSON, device)
     new_test_cond = load_conditions(NEW_TEST_JSON, OBJ_JSON, device)
@@ -106,9 +123,9 @@ def main() -> None:
     print("\nGenerating test.json images...")
     gen_test = ddpm.ddim_sample(
         test_cond,
-        evaluator=evaluator if GUIDANCE_SCALE > 0 else None,
-        guidance_scale=GUIDANCE_SCALE,
-        n_steps=DDIM_STEPS,
+        evaluator=evaluator if args.guidance_scale > 0 else None,
+        guidance_scale=args.guidance_scale,
+        n_steps=args.ddim_steps,
         eta=ETA,
     )
     save_images(gen_test, OUT_TEST)
@@ -120,9 +137,9 @@ def main() -> None:
     print("\nGenerating new_test.json images...")
     gen_new = ddpm.ddim_sample(
         new_test_cond,
-        evaluator=evaluator if GUIDANCE_SCALE > 0 else None,
-        guidance_scale=GUIDANCE_SCALE,
-        n_steps=DDIM_STEPS,
+        evaluator=evaluator if args.guidance_scale > 0 else None,
+        guidance_scale=args.guidance_scale,
+        n_steps=args.ddim_steps,
         eta=ETA,
     )
     save_images(gen_new, OUT_NEW_TEST)
@@ -138,7 +155,7 @@ def main() -> None:
 
     _, frames = ddpm.ddim_sample(
         viz_cond,
-        n_steps=DDIM_STEPS,
+        n_steps=args.ddim_steps,
         eta=ETA,
         return_intermediates=True,
         n_intermediates=VIZ_FRAMES,
