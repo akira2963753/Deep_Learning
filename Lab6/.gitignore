@@ -1,4 +1,7 @@
 iclevr/
 checkpoints/
 __pycache__/
+report/
+images/
 *.pyc
+

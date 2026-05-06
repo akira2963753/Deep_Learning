@@ -35,7 +35,7 @@ CKPT_BEST     = CKPT_DIR / 'best.pth'
 DEFAULT_BATCH_SIZE     = 32
 DEFAULT_LR             = 2e-4
 DEFAULT_WEIGHT_DECAY   = 1e-4
-DEFAULT_NUM_EPOCHS     = 300
+DEFAULT_NUM_EPOCHS     = 200
 DEFAULT_WARMUP_STEPS   = 500
 DEFAULT_GRAD_CLIP      = 1.0
 DEFAULT_EMA_DECAY      = 0.9999
@@ -176,6 +176,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
     parser.add_argument('--timesteps', type=int, default=DEFAULT_TIMESTEPS)
     parser.add_argument('--num_workers', type=int, default=DEFAULT_NUM_WORKERS)
+    parser.add_argument('--no_scheduler', action='store_true',
+                        help='Disable LR scheduler (fixed LR throughout training)')
     return parser.parse_args()
 
 
@@ -237,8 +239,9 @@ def main(args: argparse.Namespace) -> None:
         progress = (current_step - args.warmup_steps) / max(1, total_steps - args.warmup_steps)
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
-    scheduler = LambdaLR(optimizer, lr_lambda)
+    scheduler = LambdaLR(optimizer, lr_lambda if not args.no_scheduler else lambda _: 1.0)
     scaler    = GradScaler('cuda', enabled=use_amp)
+    print(f"LR schedule: {'fixed lr={:.2e}'.format(args.lr) if args.no_scheduler else 'cosine annealing with warmup'}")
 
     # ── Evaluator (CUDA only) ────────────────
     evaluator = None
