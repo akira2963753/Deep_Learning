@@ -210,7 +210,7 @@ class DDPM(nn.Module):
                     x0_hat = (x_in - sqrt_1mab * eps_pred) / sqrt_abar
                     x0_hat = x0_hat.clamp(-1.0, 1.0)
                     probs  = evaluator.resnet18(x0_hat)
-                    log_p  = -F.binary_cross_entropy(probs, condition, reduction='sum')
+                    log_p  = -F.binary_cross_entropy(probs, condition, reduction='mean')
                     grad   = torch.autograd.grad(log_p, x_in)[0]
                 eps_pred = eps_pred - sqrt_1mab * guidance_scale * grad
 
