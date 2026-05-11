@@ -227,7 +227,7 @@ class DDPM(nn.Module):
             x      = abar_prev.sqrt() * x0_pred + dir_xt + noise
 
             if return_intermediates and (i % save_interval == 0):
-                intermediates.append(x.detach().clone())
+                intermediates.append(x0_pred.detach().clone())
 
         x = x.clamp(-1.0, 1.0)
         if return_intermediates:
